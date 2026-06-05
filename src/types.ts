@@ -1,8 +1,8 @@
-export interface SmartcarTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;                    // ms timestamp: when access_token expires
-  refresh_token_obtained_at?: number;   // ms timestamp: when this refresh_token was issued
+// V3: no per-vehicle tokens; only app-level token + userId needed
+export interface SmartcarSession {
+  userId: string;             // Smartcar userId obtained once via Connect
+  appToken?: string;          // cached app-level access token
+  appTokenExpiresAt?: number; // ms timestamp
 }
 
 export interface PluginConfig {
@@ -10,10 +10,11 @@ export interface PluginConfig {
   name: string;
   clientId: string;
   clientSecret: string;
+  hostIp?: string;
   redirectUri?: string;
   pin?: string;
   pollIntervalSeconds?: number;
-  notifyWebhookUrl?: string;             // Optional: POST when re-auth is needed
+  notifyWebhookUrl?: string;
 }
 
 export interface JlrVehicleSummary {

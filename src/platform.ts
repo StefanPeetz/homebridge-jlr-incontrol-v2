@@ -1,66 +1,75 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
-import * as path from 'path';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { SmartcarClient } from './smartcar-client';
 import { VehicleAccessory } from './vehicle-accessory';
+import { PluginConfig, JlrVehicleSummary } from './types';
+import * as path from 'path';
 
 export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
   public readonly accessories: PlatformAccessory[] = [];
-  private readonly smartcar: SmartcarClient;
+
+  private readonly client: SmartcarClient;
+  private readonly config: PluginConfig;
 
   constructor(
     public readonly log: Logger,
-    public readonly config: PlatformConfig,
+    config: PlatformConfig,
     public readonly api: API,
   ) {
     this.Service        = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
+    this.config         = config as unknown as PluginConfig;
 
-    const hostIp = (config.hostIp as string | undefined) ?? 'localhost';
-    const mode   = ((config.smartcarMode as string | undefined) ?? 'test') as 'test' | 'live';
+    const storePath = path.join(api.user.storagePath(), 'smartcar-session.json');
 
-    this.log.info('Smartcar mode: %s', mode);
-
-    this.smartcar = new SmartcarClient({
-      clientId:         config.clientId as string,
-      clientSecret:     config.clientSecret as string,
-      hostIp,
-      mode,
-      redirectUri:      config.redirectUri as string | undefined,
-      tokenStorePath:   path.join(api.user.storagePath(), 'smartcar-tokens.json'),
-      notifyWebhookUrl: config.notifyWebhookUrl as string | undefined,
-      log,
+    this.client = new SmartcarClient({
+      clientId:       this.config.clientId,
+      clientSecret:   this.config.clientSecret,
+      hostIp:         this.config.hostIp,
+      redirectUri:    this.config.redirectUri,
+      tokenStorePath: storePath,
+      notifyWebhookUrl: this.config.notifyWebhookUrl,
+      log:            this.log,
     });
 
-    this.api.on('didFinishLaunching', () => this.discoverDevices());
+    this.client.onReauthRequired = (required) => {
+      if (required) this.log.warn('[Platform] ⚠️  Re-auth nötig! Öffne: http://%s:52625/auth', this.config.hostIp ?? 'localhost');
+    };
+
+    this.api.on('didFinishLaunching', () => { this.discoverDevices(); });
   }
 
   configureAccessory(accessory: PlatformAccessory): void {
-    this.log.info('Loading cached accessory: %s', accessory.displayName);
+    this.log.info('Loading accessory from cache: %s', accessory.displayName);
     this.accessories.push(accessory);
   }
 
-  async discoverDevices(): Promise<void> {
-    const pollMs = ((this.config.pollInterval as number | undefined) ?? 300) * 1000;
+  private async discoverDevices(): Promise<void> {
     try {
-      const vehicles = await this.smartcar.getVehicles();
+      await this.client.ensureAuthenticated();
+      const vehicles: JlrVehicleSummary[] = await this.client.getVehicles();
+
       for (const vehicle of vehicles) {
-        const uuid     = this.api.hap.uuid.generate(vehicle.vin);
+        const uuid = this.api.hap.uuid.generate(vehicle.vin);
         const existing = this.accessories.find(a => a.UUID === uuid);
+
         if (existing) {
-          this.log.info('Restoring cached vehicle: %s', vehicle.nickname);
-          new VehicleAccessory(this, existing, this.smartcar, vehicle).startPolling(pollMs);
+          this.log.info('Restoring accessory: %s', vehicle.nickname);
+          new VehicleAccessory(this, existing, this.client, vehicle,
+            this.config.pollIntervalSeconds ?? 60, this.config.pin);
         } else {
-          this.log.info('Adding new vehicle: %s', vehicle.nickname);
+          this.log.info('Adding new accessory: %s', vehicle.nickname);
           const accessory = new this.api.platformAccessory(vehicle.nickname, uuid);
-          new VehicleAccessory(this, accessory, this.smartcar, vehicle).startPolling(pollMs);
+          accessory.context.vehicle = vehicle;
+          new VehicleAccessory(this, accessory, this.client, vehicle,
+            this.config.pollIntervalSeconds ?? 60, this.config.pin);
           this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         }
       }
     } catch (err) {
-      this.log.error('Failed to discover vehicles: %s', (err as Error).message);
+      this.log.error('[Platform] discoverDevices failed: %s', (err as Error).message);
     }
   }
 }

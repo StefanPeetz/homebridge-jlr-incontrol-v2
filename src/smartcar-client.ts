@@ -2,27 +2,27 @@ import axios, { AxiosInstance } from 'axios';
 import * as http from 'http';
 import * as fs from 'fs';
 import { Logger } from 'homebridge';
-import { SmartcarTokens, JlrVehicleSummary, JlrVehicleState } from './types';
+import { SmartcarSession, JlrVehicleSummary, JlrVehicleState } from './types';
 
-const SMARTCAR_AUTH_URL   = 'https://connect.smartcar.com/oauth/authorize';
-const SMARTCAR_TOKEN_URL  = 'https://auth.smartcar.com/oauth/token';
-const SMARTCAR_API_BASE   = 'https://api.smartcar.com/v2.0';
-const OAUTH_SERVER_PORT   = 52625;
+// ─── Smartcar V3 endpoints ────────────────────────────────────────────────────
+const SMARTCAR_CONNECT_URL = 'https://connect.smartcar.com/oauth/authorize';
+const SMARTCAR_TOKEN_URL   = 'https://auth.smartcar.com/oauth/token';   // Connect code exchange
+const SMARTCAR_IAM_URL     = 'https://iam.smartcar.com/oauth2/token';   // V3 client_credentials
+const SMARTCAR_API_BASE    = 'https://vehicle.api.smartcar.com/v3';     // V3 API
+const OAUTH_SERVER_PORT    = 52625;
 
-const REFRESH_TOKEN_TTL_MS     = 60 * 24 * 60 * 60 * 1000;
-const REAUTH_WARNING_THRESHOLD =  7 * 24 * 60 * 60 * 1000;
+const APP_TOKEN_TTL_BUFFER_MS = 5 * 60 * 1000;
 
 export class SmartcarClient {
   private http: AxiosInstance;
-  private tokens?: SmartcarTokens;
-  private tokenPath: string;
+  private session?: SmartcarSession;
+  private readonly sessionPath: string;
   private oauthServer?: http.Server;
 
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly redirectUri: string;
   private readonly hostIp: string;
-  private readonly mode: 'test' | 'live';
   private readonly notifyWebhookUrl?: string;
   private readonly log: Logger;
 
@@ -33,7 +33,6 @@ export class SmartcarClient {
     clientSecret: string;
     hostIp?: string;
     redirectUri?: string;
-    mode?: 'test' | 'live';
     tokenStorePath: string;
     notifyWebhookUrl?: string;
     log: Logger;
@@ -41,91 +40,93 @@ export class SmartcarClient {
     this.clientId     = params.clientId;
     this.clientSecret = params.clientSecret;
     this.hostIp       = params.hostIp ?? 'localhost';
-    this.mode         = params.mode ?? 'live';  // Smartcar uses 'live' by default
     this.redirectUri  = params.redirectUri
       ?? `http://${this.hostIp}:${OAUTH_SERVER_PORT}/callback`;
-    this.tokenPath        = params.tokenStorePath;
+    this.sessionPath      = params.tokenStorePath;
     this.notifyWebhookUrl = params.notifyWebhookUrl;
     this.log              = params.log;
     this.http             = axios.create({ timeout: 30000 });
   }
 
-  // ─── Token persistence ────────────────────────────────────────────────────
+  // ─── Session persistence ──────────────────────────────────────────────────
 
-  private saveTokens(tokens: SmartcarTokens): void {
-    fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2), 'utf-8');
-    this.tokens = tokens;
-    this.log.info('[Smartcar] Tokens saved to %s', this.tokenPath);
+  private saveSession(session: SmartcarSession): void {
+    const toSave: SmartcarSession = { userId: session.userId };
+    fs.writeFileSync(this.sessionPath, JSON.stringify(toSave, null, 2), 'utf-8');
+    this.session = session;
+    this.log.info('[Smartcar] Session saved (userId: %s)', session.userId);
   }
 
-  private loadTokens(): SmartcarTokens | null {
+  private loadSession(): SmartcarSession | null {
     try {
-      return JSON.parse(fs.readFileSync(this.tokenPath, 'utf-8')) as SmartcarTokens;
+      return JSON.parse(fs.readFileSync(this.sessionPath, 'utf-8')) as SmartcarSession;
     } catch { return null; }
   }
 
-  // ─── Re-auth warning ──────────────────────────────────────────────────────
+  // ─── V3: App-level access token (client_credentials) ─────────────────────
 
-  needsReauth(): boolean {
-    if (!this.tokens) return true;
-    const exp = (this.tokens.refresh_token_obtained_at ?? (this.tokens.expires_at - 7200 * 1000)) + REFRESH_TOKEN_TTL_MS;
-    return exp - Date.now() < REAUTH_WARNING_THRESHOLD;
-  }
-
-  daysUntilReauth(): number {
-    if (!this.tokens) return 0;
-    const exp = (this.tokens.refresh_token_obtained_at ?? (this.tokens.expires_at - 7200 * 1000)) + REFRESH_TOKEN_TTL_MS;
-    return Math.round((exp - Date.now()) / (24 * 60 * 60 * 1000));
-  }
-
-  private async triggerReauthNotification(): Promise<void> {
-    const days    = this.daysUntilReauth();
-    const authUrl = `http://${this.hostIp}:${OAUTH_SERVER_PORT}/auth`;
-    this.log.warn('[Smartcar] ⚠️  Re-auth required in %d day(s). Open: %s', Math.max(0, days), authUrl);
-    this.onReauthRequired?.(true);
-    if (this.notifyWebhookUrl) {
-      try {
-        await this.http.post(this.notifyWebhookUrl, {
-          title: 'JLR InControl: Re-auth required',
-          message: `Token expires in ${Math.max(0, days)} day(s). Open ${authUrl}`,
-          url: authUrl, days,
-        });
-      } catch (err) {
-        this.log.warn('[Smartcar] Webhook failed: %s', (err as Error).message);
-      }
+  private async fetchAppToken(): Promise<string> {
+    this.log.info('[Smartcar] Fetching V3 app token (client_credentials)...');
+    const resp = await this.http.post(
+      SMARTCAR_IAM_URL,
+      new URLSearchParams({
+        grant_type:    'client_credentials',
+        client_id:     this.clientId,
+        client_secret: this.clientSecret,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    const expiresIn: number = resp.data.expires_in ?? 3600;
+    if (this.session) {
+      this.session.appToken          = resp.data.access_token;
+      this.session.appTokenExpiresAt = Date.now() + expiresIn * 1000;
     }
+    this.log.info('[Smartcar] App token valid for %ds', expiresIn);
+    return resp.data.access_token as string;
+  }
+
+  private async getAppToken(): Promise<string> {
+    if (
+      this.session?.appToken &&
+      this.session.appTokenExpiresAt &&
+      this.session.appTokenExpiresAt - Date.now() > APP_TOKEN_TTL_BUFFER_MS
+    ) {
+      return this.session.appToken;
+    }
+    return this.fetchAppToken();
   }
 
   // ─── Session management ───────────────────────────────────────────────────
 
-  private isAccessTokenValid(): boolean {
-    return !!(this.tokens && this.tokens.expires_at > Date.now() + 60_000);
-  }
-
   async ensureAuthenticated(): Promise<void> {
-    if (!this.tokens) this.tokens = this.loadTokens() ?? undefined;
-    if (!this.tokens) {
-      this.log.warn('[Smartcar] No tokens – starting OAuth flow...');
+    if (!this.session) this.session = this.loadSession() ?? undefined;
+
+    if (!this.session?.userId) {
+      this.log.warn('[Smartcar] No userId – starting OAuth Connect flow...');
+      this.onReauthRequired?.(true);
       await this.startOAuthFlow();
       return;
     }
-    if (this.needsReauth()) await this.triggerReauthNotification();
-    else this.onReauthRequired?.(false);
-    if (!this.isAccessTokenValid()) await this.refreshTokens();
+
+    await this.getAppToken();
+    this.onReauthRequired?.(false);
   }
 
-  // ─── OAuth 2.0 flow ───────────────────────────────────────────────────────
+  needsReauth(): boolean {
+    return !this.session?.userId;
+  }
 
-  private buildAuthUrl(): string {
-    // Smartcar Connect uses 'application_id' (not 'client_id') in the authorize URL
+  // ─── OAuth Connect flow (one-time, to obtain userId) ───────────────────────
+
+  private buildConnectUrl(): string {
     const params = new URLSearchParams({
-      response_type:  'code',
-      application_id: this.clientId,
-      redirect_uri:   this.redirectUri,
-      scope:          'required:read_vehicle_info read_vin read_charge read_battery read_fuel read_location read_odometer control_security',
-      mode:           this.mode,
+      response_type: 'code',
+      client_id:     this.clientId,
+      redirect_uri:  this.redirectUri,
+      scope:         'required:read_vehicle_info read_vin read_charge read_battery read_fuel read_location read_odometer control_security',
+      mode:          'live',
     });
-    return `${SMARTCAR_AUTH_URL}?${params.toString()}`;
+    return `${SMARTCAR_CONNECT_URL}?${params.toString()}`;
   }
 
   private startOAuthFlow(): Promise<void> {
@@ -136,21 +137,24 @@ export class SmartcarClient {
         const url = new URL(req.url ?? '/', `http://localhost:${OAUTH_SERVER_PORT}`);
 
         if (url.pathname === '/auth') {
-          res.writeHead(302, { Location: this.buildAuthUrl() });
+          res.writeHead(302, { Location: this.buildConnectUrl() });
           res.end();
           return;
         }
 
         if (url.pathname === '/callback') {
-          const code  = url.searchParams.get('code');
-          const error = url.searchParams.get('error');
+          const code   = url.searchParams.get('code');
+          const userId = url.searchParams.get('userId');
+          const error  = url.searchParams.get('error');
+
           if (error || !code) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
             res.end('<h2>❌ Auth failed: ' + (error ?? 'no code') + '</h2>');
             reject(new Error('OAuth error: ' + error));
             return;
           }
-          this.exchangeCode(code)
+
+          this.exchangeCode(code, userId ?? undefined)
             .then(() => {
               res.writeHead(200, { 'Content-Type': 'text/html' });
               res.end('<h2>✅ Smartcar connected!</h2><p>You can close this tab.</p>');
@@ -160,7 +164,7 @@ export class SmartcarClient {
             })
             .catch(err => {
               res.writeHead(500, { 'Content-Type': 'text/html' });
-              res.end('<h2>❌ Token exchange failed</h2><pre>' + (err as Error).message + '</pre>');
+              res.end('<h2>❌ Auth failed</h2><pre>' + (err as Error).message + '</pre>');
               reject(err);
             });
           return;
@@ -172,67 +176,50 @@ export class SmartcarClient {
       this.oauthServer.listen(OAUTH_SERVER_PORT, () => {
         const authUrl = `http://${this.hostIp}:${OAUTH_SERVER_PORT}/auth`;
         this.log.warn('[Smartcar] ════════════════════════════════════════════════════');
-        this.log.warn('[Smartcar] ACTION REQUIRED: Open this URL in your browser:');
-        this.log.warn('[Smartcar]   %s  (mode: %s)', authUrl, this.mode);
+        this.log.warn('[Smartcar] EINMALIG: Browser öffnen:');
+        this.log.warn('[Smartcar]   %s', authUrl);
+        this.log.warn('[Smartcar] Danach läuft alles automatisch.');
         this.log.warn('[Smartcar] ════════════════════════════════════════════════════');
       });
     });
   }
 
-  private async exchangeCode(code: string): Promise<void> {
-    this.log.info('[Smartcar] Exchanging auth code...');
-    // Token exchange still uses client_id (HTTP Basic Auth)
+  private async exchangeCode(code: string, userIdFromCallback?: string): Promise<void> {
+    this.log.info('[Smartcar] Exchanging Connect code for userId...');
     const resp = await this.http.post(
       SMARTCAR_TOKEN_URL,
       new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: this.redirectUri }),
       { auth: { username: this.clientId, password: this.clientSecret }, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     );
-    this.saveTokens({
-      access_token:              resp.data.access_token,
-      refresh_token:             resp.data.refresh_token,
-      expires_at:                Date.now() + (resp.data.expires_in ?? 7200) * 1000,
-      refresh_token_obtained_at: Date.now(),
-    });
+
+    const userId = userIdFromCallback ?? resp.data.user_id ?? resp.data.userId;
+    if (!userId) throw new Error('No userId in Connect response — check your Smartcar app is on V3');
+
+    this.saveSession({ userId });
+    await this.fetchAppToken();
   }
 
-  private async refreshTokens(): Promise<void> {
-    if (!this.tokens?.refresh_token) throw new Error('No refresh token');
-    this.log.info('[Smartcar] Refreshing access token...');
-    try {
-      const resp = await this.http.post(
-        SMARTCAR_TOKEN_URL,
-        new URLSearchParams({ grant_type: 'refresh_token', refresh_token: this.tokens.refresh_token }),
-        { auth: { username: this.clientId, password: this.clientSecret }, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-      );
-      this.saveTokens({
-        access_token:              resp.data.access_token,
-        refresh_token:             resp.data.refresh_token ?? this.tokens.refresh_token,
-        expires_at:                Date.now() + (resp.data.expires_in ?? 7200) * 1000,
-        refresh_token_obtained_at: resp.data.refresh_token ? Date.now() : this.tokens.refresh_token_obtained_at,
-      });
-    } catch (err) {
-      this.log.error('[Smartcar] Refresh failed – re-auth needed');
-      this.tokens = undefined;
-      fs.rmSync(this.tokenPath, { force: true });
-      await this.triggerReauthNotification();
-      await this.startOAuthFlow();
-      throw err;
-    }
+  // ─── API helpers (V3) ─────────────────────────────────────────────────────
+
+  private async authHeaders(): Promise<Record<string, string>> {
+    const token = await this.getAppToken();
+    return {
+      'Authorization': `Bearer ${token}`,
+      'sc-user-id':    this.session!.userId,
+    };
   }
 
-  // ─── API helpers ──────────────────────────────────────────────────────────
-
-  private authHeaders() { return { Authorization: `Bearer ${this.tokens!.access_token}` }; }
-
-  private async get<T>(p: string): Promise<T> {
+  private async get<T>(path: string): Promise<T> {
     await this.ensureAuthenticated();
-    return (await this.http.get<T>(`${SMARTCAR_API_BASE}${p}`, { headers: this.authHeaders() })).data;
+    return (await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, {
+      headers: await this.authHeaders(),
+    })).data;
   }
 
-  private async post<T>(p: string, body: unknown): Promise<T> {
+  private async post<T>(path: string, body: unknown): Promise<T> {
     await this.ensureAuthenticated();
-    return (await this.http.post<T>(`${SMARTCAR_API_BASE}${p}`, body, {
-      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+    return (await this.http.post<T>(`${SMARTCAR_API_BASE}${path}`, body, {
+      headers: { ...await this.authHeaders(), 'Content-Type': 'application/json' },
     })).data;
   }
 

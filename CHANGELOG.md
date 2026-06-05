@@ -1,23 +1,27 @@
 # Changelog
 
-## [1.0.6] - 2026-06-05
+## [1.0.7] - 2026-06-05
+
+### Breaking / Migration
+- **Vollständige Migration auf Smartcar API V3**
+- Token: OAuth Code Exchange → `client_credentials` gegen `iam.smartcar.com`
+- API Base: `api.smartcar.com/v2.0` → `vehicle.api.smartcar.com/v3`
+- Neuer `sc-user-id` Header bei allen API-Requests
+- Session speichert nur noch `userId` (kein Refresh Token mehr)
+- Connect Flow bleibt **einmalig** nötig um `userId` zu erhalten
+- Alte Session-Datei löschen: `rm ~/.homebridge/smartcar-tokens.json`
+- `smartcarMode` Config-Option entfernt (immer `live`)
 
 ### Fixed
-- Auth-URL verwendet jetzt `application_id` statt `client_id` — das war die eigentliche Ursache des `400: Invalid parameter client_id`
-- Default mode ist jetzt `live` (war `test`)
-- Token-Exchange und Refresh bleiben bei HTTP Basic Auth mit clientId/clientSecret (korrekt)
+- Kompatibilität mit neuem Smartcar `client_01...` Client-ID-Format
+
+## [1.0.6] - 2026-06-05
+### Fixed
+- `application_id` vs `client_id` Korrektur in Auth-URL
 
 ## [1.0.5] - 2026-06-05
 ### Fixed
-- `smartcarMode` konfigurierbar (test/live)
-
-## [1.0.4] - 2026-06-05
-### Fixed
-- TypeScript Build: JlrPlatform → JlrSmartcarPlatform, VehicleAccessory Konstruktor
-
-## [1.0.3] - 2026-06-05
-### Fixed
-- hostIp für Raspberry Pi Auth-URL
+- `smartcarMode` konfigurierbar
 
 ## [1.0.0] - 2026-06-05
 ### Breaking
