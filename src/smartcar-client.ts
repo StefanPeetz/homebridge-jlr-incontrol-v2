@@ -44,22 +44,30 @@ export class SmartcarClient {
 
     this.log.info('[Smartcar] Resolving userId via Management API...');
     const auth = Buffer.from(`default:${this.managementToken}`).toString('base64');
-    const resp = await this.http.get<{ connections: { userId: string; vehicleId: string; mode: string }[] }>(
+    const resp = await this.http.get<{
+      connections: { userId: string; vehicleId: string; mode: string; connectedAt: string }[];
+    }>(
       SMARTCAR_MGMT_URL,
       { headers: { Authorization: `Basic ${auth}` } },
     );
 
-    const liveConnections = (resp.data.connections ?? []).filter(c => c.mode === 'live');
-    if (liveConnections.length === 0) {
+    const connections = resp.data.connections ?? [];
+    this.log.info('[Smartcar] Management API returned %d connection(s):', connections.length);
+    connections.forEach((c, i) =>
+      this.log.info('[Smartcar]   [%d] userId=%s vehicleId=%s mode=%s connectedAt=%s', i, c.userId, c.vehicleId, c.mode, c.connectedAt),
+    );
+
+    if (connections.length === 0) {
       throw new Error(
-        '[Smartcar] No live connections found via Management API. ' +
-        'Connect your vehicle at connect.smartcar.com first.',
+        '[Smartcar] No connections found via Management API. ' +
+        'Connect your vehicle first via the Smartcar Connect flow.',
       );
     }
 
-    const userId = liveConnections[0].userId;
-    this.log.info('[Smartcar] Resolved userId: %s (%d live connection(s))', userId, liveConnections.length);
-    return userId;
+    // Prefer live connections, fall back to any
+    const preferred = connections.find(c => c.mode === 'live') ?? connections[0];
+    this.log.info('[Smartcar] Using connection: userId=%s mode=%s', preferred.userId, preferred.mode);
+    return preferred.userId;
   }
 
   // ─── App-level access token (client_credentials) ─────────────────────────
