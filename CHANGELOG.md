@@ -1,23 +1,20 @@
 # Changelog
 
-## [1.1.0] – 2026-06-05
-
-### Breaking Change
-- Removed the built-in OAuth Connect server (port 52625).
-  The `client_01…` Client ID used by Smartcar V3 is a `client_credentials`
-  credential and **cannot** be used in the browser-based Connect flow.
+## [1.2.0] – 2026-06-05
 
 ### Added
-- New required config field: `userId`.
-  Obtain it once from the Smartcar Dashboard → Connections and paste it
-  into the plugin config. No further logins are needed.
-- Custom UI (`homebridge-ui`): step-by-step instructions + live connection
-  test (calls the Smartcar API directly to verify credentials).
+- `managementToken` config field (Application Management Token from Smartcar Dashboard).
+- Auto-resolution of `userId` via `GET /v2.0/management/connections` on startup.
+  No manual copy-paste of userId required anymore.
+- Custom UI: live connection test resolves userId and verifies vehicle access.
 
 ### Removed
-- Local HTTP server on port 52625 (OAuth redirect listener).
-- `redirectUri` and `hostIp` config fields (no longer needed).
-- Token file (`smartcar-session.json`) – state is now fully in-memory.
+- Manual `userId` is now optional (kept as override only).
+- `hostIp`, `redirectUri` config fields (not needed).
+
+## [1.1.0] – 2026-06-05
+- Removed broken OAuth Connect flow (client_01… IDs not accepted by Connect).
+- Added manual `userId` config field as workaround.
 
 ## [1.0.8] – 2026-06-05
 - Initial public release (OAuth flow – broken with V3 client_01 IDs).

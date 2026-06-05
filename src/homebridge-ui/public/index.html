@@ -37,19 +37,18 @@
   <h2>🚗 JLR Smartcar – Einrichtung</h2>
 
   <div class="card">
-    <h3>Schritt 1 – userId im Smartcar Dashboard finden</h3>
+    <h3>Schritt 1 – Zugangsdaten im Smartcar Dashboard holen</h3>
     <ol class="steps">
       <li>Öffne <a href="https://dashboard.smartcar.com" target="_blank">dashboard.smartcar.com</a> und melde dich an.</li>
-      <li>Klicke links auf <strong>Connections</strong> (oder <strong>Users &amp; Connections</strong>).</li>
-      <li>Wähle deinen Nutzer / dein Fahrzeug aus der Liste.</li>
-      <li>Kopiere die angezeigte <strong>User ID</strong> (Format: <code>sc_user_…</code> oder eine UUID).</li>
+      <li>Wähle deine App aus.</li>
+      <li>Kopiere <strong>Client ID</strong> und <strong>Client Secret</strong> aus dem Bereich <em>API credentials</em>.</li>
+      <li>Kopiere den <strong>Application Management Token</strong> aus dem Bereich <em>Application Configuration</em>.</li>
     </ol>
+    <p style="font-size:13px;color:#666;margin:8px 0 0">💡 Die <strong>userId wird automatisch</strong> über den Management Token aufgelöst – du musst sie nicht manuell suchen.</p>
   </div>
 
   <div class="card">
     <h3>Schritt 2 – Verbindung testen</h3>
-    <p style="font-size:13px;color:#666;margin:0 0 12px">Gib deine Zugangsdaten ein und klicke auf Testen – kein Browser-Login nötig.</p>
-
     <div class="field">
       <label for="clientId">Client ID</label>
       <input id="clientId" type="text" placeholder="client_01…" />
@@ -59,8 +58,8 @@
       <input id="clientSecret" type="password" placeholder="••••••••" />
     </div>
     <div class="field">
-      <label for="userId">User ID</label>
-      <input id="userId" type="text" placeholder="sc_user_… oder UUID" />
+      <label for="managementToken">Application Management Token</label>
+      <input id="managementToken" type="password" placeholder="••••••••" />
     </div>
 
     <button id="testBtn" onclick="testConnection()">🔌 Verbindung testen</button>
@@ -69,20 +68,20 @@
 
   <div class="card">
     <h3>Schritt 3 – Config speichern</h3>
-    <p style="font-size:13px;color:#666;margin:0">Trage <code>clientId</code>, <code>clientSecret</code> und <code>userId</code> in die Plugin-Config ein und starte Homebridge neu. Fertig – kein weiterer Login nötig!</p>
+    <p style="font-size:13px;color:#666;margin:0">Trage <code>clientId</code>, <code>clientSecret</code> und <code>managementToken</code> in die Plugin-Config ein und starte Homebridge neu. Die userId wird beim Start automatisch aufgelöst.</p>
   </div>
 
   <script>
     const api = window.homebridge;
 
     async function testConnection() {
-      const clientId     = document.getElementById('clientId').value.trim();
-      const clientSecret = document.getElementById('clientSecret').value.trim();
-      const userId       = document.getElementById('userId').value.trim();
-      const btn          = document.getElementById('testBtn');
-      const result       = document.getElementById('result');
+      const clientId       = document.getElementById('clientId').value.trim();
+      const clientSecret   = document.getElementById('clientSecret').value.trim();
+      const managementToken = document.getElementById('managementToken').value.trim();
+      const btn            = document.getElementById('testBtn');
+      const result         = document.getElementById('result');
 
-      if (!clientId || !clientSecret || !userId) {
+      if (!clientId || !clientSecret || !managementToken) {
         result.className = 'result error';
         result.textContent = 'Bitte alle drei Felder ausfüllen.';
         return;
@@ -94,7 +93,7 @@
       result.textContent = 'Verbinde mit Smartcar API…';
 
       try {
-        const res = await api.request('POST', '/test-connection', { clientId, clientSecret, userId });
+        const res = await api.request('POST', '/test-connection', { clientId, clientSecret, managementToken });
         result.className = res.ok ? 'result ok' : 'result error';
         result.textContent = res.message;
       } catch (e) {

@@ -23,11 +23,16 @@
         "required": true,
         "description": "Your Smartcar Client Secret."
       },
-      "userId": {
-        "title": "Smartcar User ID",
+      "managementToken": {
+        "title": "Application Management Token",
         "type": "string",
         "required": true,
-        "description": "Your Smartcar User ID. Find it at dashboard.smartcar.com → Connections. Copy the User ID shown for your account."
+        "description": "Find it at dashboard.smartcar.com → your app → Application Configuration → Application Management Token. Used to automatically resolve your userId."
+      },
+      "userId": {
+        "title": "Smartcar User ID (optional override)",
+        "type": "string",
+        "description": "Leave empty – the userId is resolved automatically via the Management Token. Only set this if you want to override."
       },
       "pollIntervalSeconds": {
         "title": "Poll Interval (seconds)",

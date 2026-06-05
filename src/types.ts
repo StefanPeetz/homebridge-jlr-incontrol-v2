@@ -1,7 +1,7 @@
 // V3: no per-vehicle tokens; only app-level token + userId needed
 export interface SmartcarSession {
-  appToken?: string;          // cached app-level access token
-  appTokenExpiresAt?: number; // ms timestamp
+  appToken?: string;
+  appTokenExpiresAt?: number;
 }
 
 export interface PluginConfig {
@@ -9,9 +9,8 @@ export interface PluginConfig {
   name: string;
   clientId: string;
   clientSecret: string;
-  userId: string;             // Smartcar userId – find in Dashboard → Connections
-  hostIp?: string;
-  pin?: string;
+  managementToken: string;    // application_management_token from Smartcar Dashboard
+  userId?: string;            // optional override; auto-resolved if omitted
   pollIntervalSeconds?: number;
   notifyWebhookUrl?: string;
 }
@@ -26,14 +25,14 @@ export interface JlrVehicleSummary {
 export interface JlrVehicleState {
   vin: string;
   isLocked: boolean;
-  batteryLevel?: number;      // 0-100 %
+  batteryLevel?: number;
   charging?: boolean;
-  lowBattery?: boolean;       // true below 20 %
-  fuelLevelPercent?: number;  // 0-100 %
+  lowBattery?: boolean;
+  fuelLevelPercent?: number;
   rangeKm?: number;
   odometerKm?: number;
   latitude?: number;
   longitude?: number;
   isMoving?: boolean;
-  lastUpdated: string;        // ISO 8601
+  lastUpdated: string;
 }

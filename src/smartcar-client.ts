@@ -1,40 +1,68 @@
 import axios, { AxiosInstance } from 'axios';
 import { Logger } from 'homebridge';
-import { SmartcarSession } from './types';
-import { JlrVehicleSummary, JlrVehicleState } from './types';
+import { SmartcarSession, JlrVehicleSummary, JlrVehicleState } from './types';
 
-// ─── Smartcar V3 endpoints ────────────────────────────────────────────────────
-const SMARTCAR_IAM_URL  = 'https://iam.smartcar.com/oauth2/token';
-const SMARTCAR_API_BASE = 'https://vehicle.api.smartcar.com/v3';
+const SMARTCAR_IAM_URL    = 'https://iam.smartcar.com/oauth2/token';
+const SMARTCAR_API_BASE   = 'https://vehicle.api.smartcar.com/v3';
+const SMARTCAR_MGMT_URL   = 'https://management.smartcar.com/v2.0/management/connections';
 
 const APP_TOKEN_TTL_BUFFER_MS = 5 * 60 * 1000;
 
 export class SmartcarClient {
   private http: AxiosInstance;
   private session: SmartcarSession = {};
+  private resolvedUserId?: string;
 
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private readonly userId: string;
-  private readonly notifyWebhookUrl?: string;
+  private readonly managementToken: string;
+  private readonly userIdOverride?: string;
   private readonly log: Logger;
 
   constructor(params: {
     clientId: string;
     clientSecret: string;
-    userId: string;
-    notifyWebhookUrl?: string;
+    managementToken: string;
+    userId?: string;
     log: Logger;
   }) {
     this.clientId         = params.clientId;
     this.clientSecret     = params.clientSecret;
-    this.userId           = params.userId;
-    this.notifyWebhookUrl = params.notifyWebhookUrl;
+    this.managementToken  = params.managementToken;
+    this.userIdOverride   = params.userId;
     this.log              = params.log;
     this.http             = axios.create({ timeout: 30000 });
   }
 
-  // ─── V3: App-level access token (client_credentials) ─────────────────────
+  // ─── Management API: resolve userId ──────────────────────────────────────
+
+  async resolveUserId(): Promise<string> {
+    if (this.userIdOverride) {
+      this.log.info('[Smartcar] Using userId override from config: %s', this.userIdOverride);
+      return this.userIdOverride;
+    }
+
+    this.log.info('[Smartcar] Resolving userId via Management API...');
+    const auth = Buffer.from(`default:${this.managementToken}`).toString('base64');
+    const resp = await this.http.get<{ connections: { userId: string; vehicleId: string; mode: string }[] }>(
+      SMARTCAR_MGMT_URL,
+      { headers: { Authorization: `Basic ${auth}` } },
+    );
+
+    const liveConnections = (resp.data.connections ?? []).filter(c => c.mode === 'live');
+    if (liveConnections.length === 0) {
+      throw new Error(
+        '[Smartcar] No live connections found via Management API. ' +
+        'Connect your vehicle at connect.smartcar.com first.',
+      );
+    }
+
+    const userId = liveConnections[0].userId;
+    this.log.info('[Smartcar] Resolved userId: %s (%d live connection(s))', userId, liveConnections.length);
+    return userId;
+  }
+
+  // ─── App-level access token (client_credentials) ─────────────────────────
 
   private async fetchAppToken(): Promise<string> {
     this.log.info('[Smartcar] Fetching V3 app token (client_credentials)...');
@@ -65,14 +93,11 @@ export class SmartcarClient {
     return this.fetchAppToken();
   }
 
-  // ─── Public: ensure we have a valid app token ──────────────────────────────
+  // ─── Ensure ready ─────────────────────────────────────────────────────────
 
   async ensureAuthenticated(): Promise<void> {
-    if (!this.userId) {
-      throw new Error(
-        '[Smartcar] userId is not configured! ' +
-        'Go to https://dashboard.smartcar.com → Connections, copy your userId and add it to the plugin config.',
-      );
+    if (!this.resolvedUserId) {
+      this.resolvedUserId = await this.resolveUserId();
     }
     await this.getAppToken();
   }
@@ -83,7 +108,7 @@ export class SmartcarClient {
     const token = await this.getAppToken();
     return {
       'Authorization': `Bearer ${token}`,
-      'sc-user-id':    this.userId,
+      'sc-user-id':    this.resolvedUserId!,
     };
   }
 

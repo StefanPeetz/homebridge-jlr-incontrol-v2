@@ -21,19 +21,19 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     this.Characteristic = this.api.hap.Characteristic;
     this.config         = config as unknown as PluginConfig;
 
-    if (!this.config.userId) {
+    if (!this.config.managementToken) {
       this.log.error(
-        '[Smartcar] ❌ userId is missing from config! ' +
-        'Open the Smartcar Dashboard → Connections, copy your userId and add it to the plugin config.',
+        '[Smartcar] ❌ managementToken fehlt in der Config! ' +
+        'Öffne dashboard.smartcar.com → deine App → Application Management Token.',
       );
     }
 
     this.client = new SmartcarClient({
-      clientId:         this.config.clientId,
-      clientSecret:     this.config.clientSecret,
-      userId:           this.config.userId,
-      notifyWebhookUrl: this.config.notifyWebhookUrl,
-      log:              this.log,
+      clientId:        this.config.clientId,
+      clientSecret:    this.config.clientSecret,
+      managementToken: this.config.managementToken,
+      userId:          this.config.userId,
+      log:             this.log,
     });
 
     this.api.on('didFinishLaunching', () => { this.discoverDevices(); });
