@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-06-05
+
+### Fixed
+- `peerDependencies` jetzt `^1.6.0 || ^2.0.0` — kompatibel mit Homebridge 2.x
+- `devDependencies` auf Homebridge 2.1.0 aktualisiert
+
 ## [1.0.0] - 2026-06-05
 
 ### Breaking change
