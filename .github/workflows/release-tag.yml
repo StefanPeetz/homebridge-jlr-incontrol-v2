@@ -1,7 +1,12 @@
-name: Auto-tag on version bump
+name: Auto Release & Publish
 
-# Triggers when package.json version is bumped on main
-# Creates the Git tag that then triggers the Release workflow
+# Vollautomatisch:
+# 1. Erkennt version-bump in package.json auf main
+# 2. Erstellt Git-Tag  v{version}
+# 3. Erstellt GitHub Release mit CHANGELOG-Einträgen als Release Notes
+# 4. Publisht automatisch auf npmjs.com
+#
+# Voraussetzung: NPM_TOKEN als Repository Secret hinterlegen
 
 on:
   push:
@@ -10,21 +15,23 @@ on:
       - package.json
 
 jobs:
-  tag:
+  release-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # für Tag + Release
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0  # vollständige History für CHANGELOG-Extraktion
 
-      - name: Read version from package.json
+      # ── 1. Version lesen ────────────────────────────────────────────────
+      - name: Read version
         id: pkg
         run: echo "version=$(node -p \"require('./package.json').version\")" >> $GITHUB_OUTPUT
 
-      - name: Check if tag already exists
+      # ── 2. Prüfen ob Tag bereits existiert (idempotent) ─────────────────
+      - name: Check existing tag
         id: tag_check
         run: |
           if git ls-remote --tags origin refs/tags/v${{ steps.pkg.outputs.version }} | grep -q .; then
@@ -33,10 +40,57 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create and push tag
+      # ── 3. CHANGELOG-Abschnitt für diese Version extrahieren ────────────
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.pkg.outputs.version }}
+          # Alles zwischen ## [VERSION] und dem nächsten ## extrahieren
+          NOTES=$(awk "/^## \\[$VERSION\\]/,/^## \\[/" CHANGELOG.md \
+                  | sed '1d;/^## \[/d' | sed '/^$/N;/^\n$/d')
+          if [ -z "$NOTES" ]; then
+            NOTES="Release v$VERSION"
+          fi
+          # Multiline-safe: als Datei speichern
+          echo "$NOTES" > /tmp/release_notes.md
+          echo "notes_file=/tmp/release_notes.md" >> $GITHUB_OUTPUT
+
+      # ── 4. Tag erstellen ────────────────────────────────────────────────
+      - name: Create tag
         if: steps.tag_check.outputs.exists == 'false'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag v${{ steps.pkg.outputs.version }}
           git push origin v${{ steps.pkg.outputs.version }}
+
+      # ── 5. GitHub Release erstellen ─────────────────────────────────────
+      - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create v${{ steps.pkg.outputs.version }} \
+            --title "v${{ steps.pkg.outputs.version }}" \
+            --notes-file ${{ steps.notes.outputs.notes_file }}
+
+      # ── 6. Node.js für npm publish ───────────────────────────────────────
+      - name: Setup Node.js
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Install & build
+        if: steps.tag_check.outputs.exists == 'false'
+        run: npm install && npm run build
+
+      # ── 7. npm publish ───────────────────────────────────────────────────
+      - name: Publish to npm
+        if: steps.tag_check.outputs.exists == 'false'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
