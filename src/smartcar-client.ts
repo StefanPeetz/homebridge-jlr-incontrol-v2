@@ -2,16 +2,11 @@
 // Smartcar API client for JLR InControl Homebridge plugin
 //
 // OAuth 2.0 flow:
-//  1. User visits http://homebridge-ip:52625/auth  (one-time setup)
+//  1. User visits http://<homebridge-ip>:52625/auth  (one-time setup)
 //  2. Redirect to Smartcar consent page
 //  3. Smartcar redirects back to /callback with ?code=...
 //  4. We exchange code for tokens and store them in tokenStore
 //  5. Plugin uses refresh_token automatically from then on
-//
-// Re-auth notification:
-//  - 7 days before refresh_token expires: HomeKit "Auth Required" sensor fires
-//    + optional webhook POST to notifyWebhookUrl
-//  - On actual refresh failure: same, plus OAuth server starts automatically
 //
 
 import axios, { AxiosInstance } from 'axios';
@@ -26,10 +21,8 @@ const SMARTCAR_TOKEN_URL  = 'https://auth.smartcar.com/oauth/token';
 const SMARTCAR_API_BASE   = 'https://api.smartcar.com/v2.0';
 const OAUTH_SERVER_PORT   = 52625;
 
-// Smartcar refresh tokens expire after ~60 days.
-// We warn 7 days before expiry so there is plenty of time to re-auth.
-const REFRESH_TOKEN_TTL_MS      = 60 * 24 * 60 * 60 * 1000; // 60 days
-const REAUTH_WARNING_THRESHOLD  =  7 * 24 * 60 * 60 * 1000; //  7 days
+const REFRESH_TOKEN_TTL_MS      = 60 * 24 * 60 * 60 * 1000;
+const REAUTH_WARNING_THRESHOLD  =  7 * 24 * 60 * 60 * 1000;
 
 export class SmartcarClient {
   private http: AxiosInstance;
@@ -40,25 +33,27 @@ export class SmartcarClient {
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly redirectUri: string;
+  private readonly hostIp: string;
   private readonly notifyWebhookUrl?: string;
   private readonly log: Logger;
 
-  // Callback invoked whenever re-auth state changes.
-  // true  = re-auth is required (HomeKit sensor should trip)
-  // false = all good (sensor clears)
   public onReauthRequired?: (required: boolean) => void;
 
   constructor(params: {
     clientId: string;
     clientSecret: string;
+    hostIp?: string;
     redirectUri?: string;
     tokenStorePath: string;
     notifyWebhookUrl?: string;
     log: Logger;
   }) {
-    this.clientId          = params.clientId;
-    this.clientSecret      = params.clientSecret;
-    this.redirectUri       = params.redirectUri ?? `http://localhost:${OAUTH_SERVER_PORT}/callback`;
+    this.clientId     = params.clientId;
+    this.clientSecret = params.clientSecret;
+    // hostIp: IP or hostname of the Raspberry Pi running Homebridge
+    this.hostIp       = params.hostIp ?? 'localhost';
+    this.redirectUri  = params.redirectUri
+      ?? `http://${this.hostIp}:${OAUTH_SERVER_PORT}/callback`;
     this.tokenPath         = params.tokenStorePath;
     this.notifyWebhookUrl  = params.notifyWebhookUrl;
     this.log               = params.log;
@@ -84,10 +79,6 @@ export class SmartcarClient {
 
   // ─── Re-auth warning ──────────────────────────────────────────────────────
 
-  /**
-   * Returns true if the refresh_token is less than REAUTH_WARNING_THRESHOLD away
-   * from expiry (or already expired / missing).
-   */
   needsReauth(): boolean {
     if (!this.tokens) return true;
     const refreshTokenExpiresAt =
@@ -96,7 +87,6 @@ export class SmartcarClient {
     return refreshTokenExpiresAt - Date.now() < REAUTH_WARNING_THRESHOLD;
   }
 
-  /** Days until re-auth is required (negative = already overdue). */
   daysUntilReauth(): number {
     if (!this.tokens) return 0;
     const refreshTokenExpiresAt =
@@ -106,8 +96,8 @@ export class SmartcarClient {
   }
 
   private async triggerReauthNotification(): Promise<void> {
-    const days = this.daysUntilReauth();
-    const authUrl = `http://localhost:${OAUTH_SERVER_PORT}/auth`;
+    const days    = this.daysUntilReauth();
+    const authUrl = `http://${this.hostIp}:${OAUTH_SERVER_PORT}/auth`;
 
     this.log.warn(
       '[Smartcar] ⚠️  Re-auth required in %d day(s). Open: %s',
@@ -115,10 +105,8 @@ export class SmartcarClient {
       authUrl,
     );
 
-    // Trip HomeKit sensor
     this.onReauthRequired?.(true);
 
-    // Optional webhook (e.g. ntfy.sh, Pushover, Home Assistant, n8n)
     if (this.notifyWebhookUrl) {
       try {
         await this.http.post(this.notifyWebhookUrl, {
@@ -151,11 +139,9 @@ export class SmartcarClient {
       return;
     }
 
-    // Proactive warning: 7 days before refresh_token dies
     if (this.needsReauth()) {
       await this.triggerReauthNotification();
     } else {
-      // Clear HomeKit sensor if everything is fine
       this.onReauthRequired?.(false);
     }
 
@@ -179,7 +165,6 @@ export class SmartcarClient {
 
   private startOAuthFlow(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // If server already running (e.g. triggered twice), don't double-bind
       if (this.oauthServer?.listening) {
         return;
       }
@@ -213,7 +198,6 @@ export class SmartcarClient {
                 '<p>You can close this tab. Homebridge will continue automatically.</p>',
               );
               this.oauthServer?.close();
-              // Clear the HomeKit alert
               this.onReauthRequired?.(false);
               resolve();
             })
@@ -230,7 +214,7 @@ export class SmartcarClient {
       });
 
       this.oauthServer.listen(OAUTH_SERVER_PORT, () => {
-        const authUrl = `http://localhost:${OAUTH_SERVER_PORT}/auth`;
+        const authUrl = `http://${this.hostIp}:${OAUTH_SERVER_PORT}/auth`;
         this.log.warn('[Smartcar] ════════════════════════════════════════════════════');
         this.log.warn('[Smartcar] ACTION REQUIRED: Open this URL in your browser:');
         this.log.warn('[Smartcar]   %s', authUrl);
@@ -283,7 +267,6 @@ export class SmartcarClient {
         access_token:              resp.data.access_token,
         refresh_token:             resp.data.refresh_token ?? this.tokens.refresh_token,
         expires_at:                Date.now() + (resp.data.expires_in ?? 7200) * 1000,
-        // Only reset the clock if Smartcar issued a new refresh_token
         refresh_token_obtained_at: resp.data.refresh_token
           ? Date.now()
           : this.tokens.refresh_token_obtained_at,

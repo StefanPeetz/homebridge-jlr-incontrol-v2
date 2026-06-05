@@ -1,49 +1,72 @@
 {
-  "pluginAlias": "JlrInControl",
+  "pluginAlias": "JlrSmartcar",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Jaguar Land Rover InControl via [Smartcar API](https://smartcar.com). Create a free app at [dashboard.smartcar.com](https://dashboard.smartcar.com), add `http://localhost:52625/callback` as redirect URI, then paste your credentials below.",
   "schema": {
     "type": "object",
     "properties": {
       "name": {
-        "title": "Platform name",
+        "title": "Name",
         "type": "string",
         "default": "JLR InControl"
       },
       "clientId": {
         "title": "Smartcar Client ID",
         "type": "string",
+        "description": "Your Smartcar application Client ID from dashboard.smartcar.com",
         "required": true
       },
       "clientSecret": {
         "title": "Smartcar Client Secret",
         "type": "string",
+        "description": "Your Smartcar application Client Secret",
         "required": true
       },
-      "redirectUri": {
-        "title": "OAuth Redirect URI",
+      "hostIp": {
+        "title": "Homebridge Host IP",
         "type": "string",
-        "default": "http://localhost:52625/callback",
-        "description": "Must exactly match what you entered in the Smartcar dashboard."
+        "description": "IP address or hostname of the Raspberry Pi running Homebridge (e.g. 192.168.1.42). Required when your browser is NOT on the same device as Homebridge.",
+        "placeholder": "192.168.1.42"
       },
-      "pollIntervalSeconds": {
+      "redirectUri": {
+        "title": "OAuth Redirect URI (optional override)",
+        "type": "string",
+        "description": "Leave empty — auto-built from hostIp. Only set manually if you use a reverse proxy."
+      },
+      "notifyWebhookUrl": {
+        "title": "Re-auth Notification Webhook URL (optional)",
+        "type": "string",
+        "description": "POST webhook called 7 days before token expiry (ntfy.sh, Pushover, n8n, Home Assistant, ...)"
+      },
+      "pollInterval": {
         "title": "Poll interval (seconds)",
         "type": "integer",
         "default": 300,
-        "minimum": 60,
-        "description": "How often to fetch vehicle state. At 300 s ≈ 8,640 calls/month (Starter plan). At 1800 s ≈ 1,440/month (Free plan)."
-      },
-      "notifyWebhookUrl": {
-        "title": "Re-auth notification webhook URL (optional)",
-        "type": "string",
-        "description": "When the Smartcar token is about to expire (7 days before), a POST request with JSON body is sent here. Works with ntfy.sh, Pushover, Home Assistant webhooks, n8n, etc. Leave empty to disable."
-      },
-      "pin": {
-        "title": "Vehicle PIN (reserved)",
-        "type": "string",
-        "description": "Currently unused. Reserved for future JLR security PIN support."
+        "minimum": 60
       }
+    },
+    "required": ["clientId", "clientSecret"]
+  },
+  "layout": [
+    { "key": "name" },
+    {
+      "type": "fieldset",
+      "title": "Smartcar Credentials",
+      "description": "Create a free application at dashboard.smartcar.com to get these values.",
+      "items": ["clientId", "clientSecret"]
+    },
+    {
+      "type": "fieldset",
+      "title": "Network",
+      "description": "Set hostIp to the IP of your Raspberry Pi so the auth URL in the log is correct and the OAuth callback works from your browser.",
+      "items": ["hostIp", "redirectUri"]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": ["pollInterval", "notifyWebhookUrl"]
     }
-  }
+  ]
 }
