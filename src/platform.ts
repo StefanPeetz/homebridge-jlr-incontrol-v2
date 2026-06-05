@@ -25,13 +25,13 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     const storePath = path.join(api.user.storagePath(), 'smartcar-session.json');
 
     this.client = new SmartcarClient({
-      clientId:       this.config.clientId,
-      clientSecret:   this.config.clientSecret,
-      hostIp:         this.config.hostIp,
-      redirectUri:    this.config.redirectUri,
-      tokenStorePath: storePath,
+      clientId:         this.config.clientId,
+      clientSecret:     this.config.clientSecret,
+      hostIp:           this.config.hostIp,
+      redirectUri:      this.config.redirectUri,
+      tokenStorePath:   storePath,
       notifyWebhookUrl: this.config.notifyWebhookUrl,
-      log:            this.log,
+      log:              this.log,
     });
 
     this.client.onReauthRequired = (required) => {
@@ -47,24 +47,26 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   }
 
   private async discoverDevices(): Promise<void> {
+    const pollMs = (this.config.pollIntervalSeconds ?? 60) * 1000;
+
     try {
       await this.client.ensureAuthenticated();
       const vehicles: JlrVehicleSummary[] = await this.client.getVehicles();
 
       for (const vehicle of vehicles) {
-        const uuid = this.api.hap.uuid.generate(vehicle.vin);
+        const uuid     = this.api.hap.uuid.generate(vehicle.vin);
         const existing = this.accessories.find(a => a.UUID === uuid);
 
         if (existing) {
           this.log.info('Restoring accessory: %s', vehicle.nickname);
-          new VehicleAccessory(this, existing, this.client, vehicle,
-            this.config.pollIntervalSeconds ?? 60, this.config.pin);
+          const acc = new VehicleAccessory(this, existing, this.client, vehicle);
+          acc.startPolling(pollMs);
         } else {
           this.log.info('Adding new accessory: %s', vehicle.nickname);
           const accessory = new this.api.platformAccessory(vehicle.nickname, uuid);
           accessory.context.vehicle = vehicle;
-          new VehicleAccessory(this, accessory, this.client, vehicle,
-            this.config.pollIntervalSeconds ?? 60, this.config.pin);
+          const acc = new VehicleAccessory(this, accessory, this.client, vehicle);
+          acc.startPolling(pollMs);
           this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         }
       }
