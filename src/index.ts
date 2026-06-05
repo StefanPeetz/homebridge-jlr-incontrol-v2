@@ -1,7 +1,7 @@
 import { API } from 'homebridge';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { JlrPlatform } from './platform';
+import { JlrSmartcarPlatform } from './platform';
 
 export = (api: API) => {
-  api.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, JlrPlatform);
+  api.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, JlrSmartcarPlatform);
 };
