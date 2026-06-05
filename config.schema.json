@@ -1,0 +1,40 @@
+{
+  "pluginAlias": "JlrInControl",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Jaguar Land Rover InControl via Smartcar API. Create a free app at https://dashboard.smartcar.com, then paste your Client ID and Secret below. On first start, open http://homebridge-ip:52625/auth in your browser to authorize your vehicle.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "JLR InControl"
+      },
+      "clientId": {
+        "title": "Smartcar Client ID",
+        "type": "string",
+        "required": true
+      },
+      "clientSecret": {
+        "title": "Smartcar Client Secret",
+        "type": "string",
+        "required": true
+      },
+      "redirectUri": {
+        "title": "Redirect URI (optional, default: http://localhost:52625/callback)",
+        "type": "string"
+      },
+      "pin": {
+        "title": "Vehicle PIN (4 digits, for future use)",
+        "type": "string"
+      },
+      "pollIntervalSeconds": {
+        "title": "Poll interval (seconds, default: 300)",
+        "type": "integer",
+        "default": 300,
+        "minimum": 60
+      }
+    }
+  }
+}

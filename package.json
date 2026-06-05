@@ -1,0 +1,28 @@
+{
+  "name": "homebridge-jlr-incontrol-v2",
+  "version": "2.0.0",
+  "description": "Homebridge plugin for Jaguar Land Rover InControl via Smartcar API",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "npm run build && homebridge -D"
+  },
+  "keywords": ["homebridge-plugin", "jaguar", "landrover", "jlr", "smartcar"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "dependencies": {
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "homebridge": "^1.8.0",
+    "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "homebridge": "^1.6.0"
+  }
+}
