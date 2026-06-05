@@ -1,12 +1,4 @@
-import {
-  API,
-  DynamicPlatformPlugin,
-  Logger,
-  PlatformAccessory,
-  PlatformConfig,
-  Service,
-  Characteristic,
-} from 'homebridge';
+import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 import * as path from 'path';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { SmartcarClient } from './smartcar-client';
@@ -16,7 +8,6 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
   public readonly accessories: PlatformAccessory[] = [];
-
   private readonly smartcar: SmartcarClient;
 
   constructor(
@@ -28,11 +19,15 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     this.Characteristic = this.api.hap.Characteristic;
 
     const hostIp = (config.hostIp as string | undefined) ?? 'localhost';
+    const mode   = ((config.smartcarMode as string | undefined) ?? 'test') as 'test' | 'live';
+
+    this.log.info('Smartcar mode: %s', mode);
 
     this.smartcar = new SmartcarClient({
       clientId:         config.clientId as string,
       clientSecret:     config.clientSecret as string,
       hostIp,
+      mode,
       redirectUri:      config.redirectUri as string | undefined,
       tokenStorePath:   path.join(api.user.storagePath(), 'smartcar-tokens.json'),
       notifyWebhookUrl: config.notifyWebhookUrl as string | undefined,
@@ -49,23 +44,18 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
 
   async discoverDevices(): Promise<void> {
     const pollMs = ((this.config.pollInterval as number | undefined) ?? 300) * 1000;
-
     try {
       const vehicles = await this.smartcar.getVehicles();
-
       for (const vehicle of vehicles) {
         const uuid     = this.api.hap.uuid.generate(vehicle.vin);
         const existing = this.accessories.find(a => a.UUID === uuid);
-
         if (existing) {
           this.log.info('Restoring cached vehicle: %s', vehicle.nickname);
-          const acc = new VehicleAccessory(this, existing, this.smartcar, vehicle);
-          acc.startPolling(pollMs);
+          new VehicleAccessory(this, existing, this.smartcar, vehicle).startPolling(pollMs);
         } else {
           this.log.info('Adding new vehicle: %s', vehicle.nickname);
           const accessory = new this.api.platformAccessory(vehicle.nickname, uuid);
-          const acc = new VehicleAccessory(this, accessory, this.smartcar, vehicle);
-          acc.startPolling(pollMs);
+          new VehicleAccessory(this, accessory, this.smartcar, vehicle).startPolling(pollMs);
           this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         }
       }

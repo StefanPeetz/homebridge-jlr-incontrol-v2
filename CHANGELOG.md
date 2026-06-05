@@ -1,38 +1,26 @@
 # Changelog
 
-## [1.0.4] - 2026-06-05
+## [1.0.5] - 2026-06-05
 
 ### Fixed
-- TypeScript build: `JlrPlatform` → `JlrSmartcarPlatform` in `index.ts` und `vehicle-accessory.ts`
-- `VehicleAccessory` Konstruktor-Signatur: 4. Parameter ist `JlrVehicleSummary` (nicht `Logger`)
-- `platform.ts`: `VehicleAccessory`-Aufrufe übergeben korrekt `vehicle` als 4. Argument
-- `startPolling` wird jetzt in `discoverDevices` aufgerufen
-- Log-Zugriff in `VehicleAccessory` via `this.platform.log`
+- `smartcarMode` (test/live) jetzt konfigurierbar statt hardcoded `live`
+- Default ist `test` – verhindert den `400: Invalid parameter client_id` Fehler
+- `config.schema.json`: Dropdown für `smartcarMode` mit Erklärung
+- Log zeigt aktiven Modus beim Start
+
+### Warum war es falsch?
+- Smartcar-Apps starten immer im Test-Mode
+- Mit `mode=live` im Auth-URL lehnt Smartcar Test-App-Credentials mit 400 ab
+- Auf Live umstellen: Smartcar Dashboard → App → "Go Live" beantragen → dann `smartcarMode: "live"` setzen
+
+## [1.0.4] - 2026-06-05
+### Fixed
+- TypeScript Build: JlrPlatform → JlrSmartcarPlatform, VehicleAccessory Konstruktor
 
 ## [1.0.3] - 2026-06-05
-
 ### Fixed
-- `hostIp` config option: Auth-URL und `redirect_uri` verwenden die konfigurierte Pi-IP
-- `config.schema.json`: Neues Feld `hostIp` mit Beschreibung
-
-## [1.0.2] - 2026-06-05
-
-### Fixed
-- Clean release trigger after CI workflow fixes
-
-## [1.0.1] - 2026-06-05
-
-### Fixed
-- `peerDependencies` jetzt `^1.6.0 || ^2.0.0` — kompatibel mit Homebridge 2.x
+- hostIp für Raspberry Pi Auth-URL
 
 ## [1.0.0] - 2026-06-05
-
-### Breaking change
-- Migrated from direct JLR API (broken since 2024) to **Smartcar API**
-- Plugin renamed to `homebridge-jlr-smartcar`
-
-### Added
-- OAuth 2.0 flow, Lock/Unlock, Battery, Fuel, Range, Odometer, Location
-
-### Removed
-- Direct JLR IFAS/IFOP/IF9 auth, Climate/preconditioning
+### Breaking
+- Migration von direkter JLR API zu Smartcar

@@ -5,68 +5,32 @@
   "schema": {
     "type": "object",
     "properties": {
-      "name": {
-        "title": "Name",
+      "name":         { "title": "Name", "type": "string", "default": "JLR InControl" },
+      "clientId":     { "title": "Smartcar Client ID",     "type": "string", "required": true },
+      "clientSecret": { "title": "Smartcar Client Secret", "type": "string", "required": true },
+      "smartcarMode": {
+        "title": "Smartcar Mode",
         "type": "string",
-        "default": "JLR InControl"
-      },
-      "clientId": {
-        "title": "Smartcar Client ID",
-        "type": "string",
-        "description": "Your Smartcar application Client ID from dashboard.smartcar.com",
-        "required": true
-      },
-      "clientSecret": {
-        "title": "Smartcar Client Secret",
-        "type": "string",
-        "description": "Your Smartcar application Client Secret",
-        "required": true
+        "enum": ["test", "live"],
+        "default": "test",
+        "description": "'test' = Smartcar Simulator (kein echtes Auto n\u00f6tig). 'live' = echtes Fahrzeug. Muss mit dem Dashboard-Modus \u00fcbereinstimmen!"
       },
       "hostIp": {
         "title": "Homebridge Host IP",
         "type": "string",
-        "description": "IP address or hostname of the Raspberry Pi running Homebridge (e.g. 192.168.1.42). Required when your browser is NOT on the same device as Homebridge.",
+        "description": "IP des Raspberry Pi (z.B. 192.168.1.42). N\u00f6tig damit der Auth-Link im Log korrekt ist.",
         "placeholder": "192.168.1.42"
       },
-      "redirectUri": {
-        "title": "OAuth Redirect URI (optional override)",
-        "type": "string",
-        "description": "Leave empty — auto-built from hostIp. Only set manually if you use a reverse proxy."
-      },
-      "notifyWebhookUrl": {
-        "title": "Re-auth Notification Webhook URL (optional)",
-        "type": "string",
-        "description": "POST webhook called 7 days before token expiry (ntfy.sh, Pushover, n8n, Home Assistant, ...)"
-      },
-      "pollInterval": {
-        "title": "Poll interval (seconds)",
-        "type": "integer",
-        "default": 300,
-        "minimum": 60
-      }
+      "redirectUri":      { "title": "OAuth Redirect URI (optional)", "type": "string", "description": "Leer lassen – wird automatisch aus hostIp gebaut." },
+      "notifyWebhookUrl": { "title": "Re-auth Webhook URL (optional)", "type": "string" },
+      "pollInterval":     { "title": "Poll-Intervall (Sekunden)", "type": "integer", "default": 300, "minimum": 60 }
     },
     "required": ["clientId", "clientSecret"]
   },
   "layout": [
     { "key": "name" },
-    {
-      "type": "fieldset",
-      "title": "Smartcar Credentials",
-      "description": "Create a free application at dashboard.smartcar.com to get these values.",
-      "items": ["clientId", "clientSecret"]
-    },
-    {
-      "type": "fieldset",
-      "title": "Network",
-      "description": "Set hostIp to the IP of your Raspberry Pi so the auth URL in the log is correct and the OAuth callback works from your browser.",
-      "items": ["hostIp", "redirectUri"]
-    },
-    {
-      "type": "fieldset",
-      "title": "Advanced",
-      "expandable": true,
-      "expanded": false,
-      "items": ["pollInterval", "notifyWebhookUrl"]
-    }
+    { "type": "fieldset", "title": "Smartcar Credentials", "items": ["clientId", "clientSecret", "smartcarMode"] },
+    { "type": "fieldset", "title": "Netzwerk", "items": ["hostIp", "redirectUri"] },
+    { "type": "fieldset", "title": "Erweitert", "expandable": true, "expanded": false, "items": ["pollInterval", "notifyWebhookUrl"] }
   ]
 }
