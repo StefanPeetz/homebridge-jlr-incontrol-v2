@@ -1,0 +1,18 @@
+# Source
+src/
+
+# Dev configs
+.github/
+.eslintrc*
+tsconfig.json
+*.tgz
+
+# Tests
+test/
+*.spec.ts
+*.test.ts
+
+# Misc
+.DS_Store
+*.log
+CHANGELOG.md
