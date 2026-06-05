@@ -1,17 +1,15 @@
 # Changelog
 
-## [1.0.5] - 2026-06-05
+## [1.0.6] - 2026-06-05
 
 ### Fixed
-- `smartcarMode` (test/live) jetzt konfigurierbar statt hardcoded `live`
-- Default ist `test` – verhindert den `400: Invalid parameter client_id` Fehler
-- `config.schema.json`: Dropdown für `smartcarMode` mit Erklärung
-- Log zeigt aktiven Modus beim Start
+- Auth-URL verwendet jetzt `application_id` statt `client_id` — das war die eigentliche Ursache des `400: Invalid parameter client_id`
+- Default mode ist jetzt `live` (war `test`)
+- Token-Exchange und Refresh bleiben bei HTTP Basic Auth mit clientId/clientSecret (korrekt)
 
-### Warum war es falsch?
-- Smartcar-Apps starten immer im Test-Mode
-- Mit `mode=live` im Auth-URL lehnt Smartcar Test-App-Credentials mit 400 ab
-- Auf Live umstellen: Smartcar Dashboard → App → "Go Live" beantragen → dann `smartcarMode: "live"` setzen
+## [1.0.5] - 2026-06-05
+### Fixed
+- `smartcarMode` konfigurierbar (test/live)
 
 ## [1.0.4] - 2026-06-05
 ### Fixed
