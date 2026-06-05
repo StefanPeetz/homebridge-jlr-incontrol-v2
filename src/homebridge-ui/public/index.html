@@ -1,87 +1,110 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JLR Smartcar – Setup</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; color: #333; max-width: 560px; }
-    h2   { margin-top: 0; }
-    .status { padding: 12px 16px; border-radius: 8px; margin: 16px 0; font-weight: 500; }
-    .status.ok      { background: #d4edda; color: #155724; }
-    .status.warn    { background: #fff3cd; color: #856404; }
-    .status.error   { background: #f8d7da; color: #721c24; }
-    .status.info    { background: #d1ecf1; color: #0c5460; }
-    button { padding: 10px 20px; background: #007bff; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 8px; }
-    button:hover { background: #0056b3; }
-    button.secondary { background: #6c757d; }
-    button.secondary:hover { background: #495057; }
-    code  { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-    .days { font-size: 28px; font-weight: bold; }
-    small { color: #666; font-size: 12px; display: block; margin-top: 4px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; color: #333; max-width: 580px; }
+    h2   { margin-top: 0; font-size: 18px; }
+    h3   { font-size: 14px; color: #555; margin: 20px 0 8px; }
+    .card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+    .steps { counter-reset: step; padding: 0; list-style: none; }
+    .steps li { counter-increment: step; padding: 8px 0 8px 40px; position: relative; font-size: 14px; }
+    .steps li::before { content: counter(step); position: absolute; left: 0; top: 6px; width: 26px; height: 26px; background: #0071e3; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+    a { color: #0071e3; }
+    code { background: #e9ecef; padding: 2px 7px; border-radius: 5px; font-size: 13px; user-select: all; cursor: text; }
+    .field { margin-top: 12px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #444; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 9px 12px; border: 1px solid #ced4da; border-radius: 6px;
+      font-size: 14px; box-sizing: border-box;
+    }
+    input:focus { outline: none; border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,.15); }
+    button {
+      margin-top: 14px; padding: 10px 22px; background: #0071e3; color: #fff;
+      border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;
+    }
+    button:hover { background: #005bbf; }
+    button:disabled { background: #adb5bd; cursor: not-allowed; }
+    .result { margin-top: 14px; padding: 11px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; display: none; }
+    .result.ok    { background: #d4edda; color: #155724; display: block; }
+    .result.error { background: #f8d7da; color: #721c24; display: block; }
+    .result.info  { background: #d1ecf1; color: #0c5460; display: block; }
   </style>
 </head>
 <body>
-  <h2>🚗 JLR Smartcar – Authorization</h2>
-  <div id="status" class="status info">Checking authorization status…</div>
-  <div id="actions"></div>
+  <h2>🚗 JLR Smartcar – Einrichtung</h2>
+
+  <div class="card">
+    <h3>Schritt 1 – userId im Smartcar Dashboard finden</h3>
+    <ol class="steps">
+      <li>Öffne <a href="https://dashboard.smartcar.com" target="_blank">dashboard.smartcar.com</a> und melde dich an.</li>
+      <li>Klicke links auf <strong>Connections</strong> (oder <strong>Users &amp; Connections</strong>).</li>
+      <li>Wähle deinen Nutzer / dein Fahrzeug aus der Liste.</li>
+      <li>Kopiere die angezeigte <strong>User ID</strong> (Format: <code>sc_user_…</code> oder eine UUID).</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Schritt 2 – Verbindung testen</h3>
+    <p style="font-size:13px;color:#666;margin:0 0 12px">Gib deine Zugangsdaten ein und klicke auf Testen – kein Browser-Login nötig.</p>
+
+    <div class="field">
+      <label for="clientId">Client ID</label>
+      <input id="clientId" type="text" placeholder="client_01…" />
+    </div>
+    <div class="field">
+      <label for="clientSecret">Client Secret</label>
+      <input id="clientSecret" type="password" placeholder="••••••••" />
+    </div>
+    <div class="field">
+      <label for="userId">User ID</label>
+      <input id="userId" type="text" placeholder="sc_user_… oder UUID" />
+    </div>
+
+    <button id="testBtn" onclick="testConnection()">🔌 Verbindung testen</button>
+    <div id="result" class="result"></div>
+  </div>
+
+  <div class="card">
+    <h3>Schritt 3 – Config speichern</h3>
+    <p style="font-size:13px;color:#666;margin:0">Trage <code>clientId</code>, <code>clientSecret</code> und <code>userId</code> in die Plugin-Config ein und starte Homebridge neu. Fertig – kein weiterer Login nötig!</p>
+  </div>
 
   <script>
     const api = window.homebridge;
 
-    async function checkStatus() {
+    async function testConnection() {
+      const clientId     = document.getElementById('clientId').value.trim();
+      const clientSecret = document.getElementById('clientSecret').value.trim();
+      const userId       = document.getElementById('userId').value.trim();
+      const btn          = document.getElementById('testBtn');
+      const result       = document.getElementById('result');
+
+      if (!clientId || !clientSecret || !userId) {
+        result.className = 'result error';
+        result.textContent = 'Bitte alle drei Felder ausfüllen.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Teste…';
+      result.className = 'result info';
+      result.textContent = 'Verbinde mit Smartcar API…';
+
       try {
-        const result = await api.request('GET', '/auth-status');
-        render(result);
+        const res = await api.request('POST', '/test-connection', { clientId, clientSecret, userId });
+        result.className = res.ok ? 'result ok' : 'result error';
+        result.textContent = res.message;
       } catch (e) {
-        document.getElementById('status').className = 'status error';
-        document.getElementById('status').textContent = 'Could not connect to plugin server: ' + e.message;
+        result.className = 'result error';
+        result.textContent = 'Fehler: ' + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔌 Verbindung testen';
       }
     }
-
-    function render(s) {
-      const el = document.getElementById('status');
-      const act = document.getElementById('actions');
-
-      if (!s.authorized) {
-        el.className = 'status error';
-        el.innerHTML = '❌ <strong>Not authorized.</strong> You need to connect your JLR account.';
-        act.innerHTML = `
-          <button onclick="startAuth()">🔗 Connect JLR Account</button>
-          <small>Opens the Smartcar consent page in a new tab.</small>
-        `;
-      } else if (s.reauthRequired) {
-        el.className = 'status warn';
-        el.innerHTML = `⚠️ <strong>Re-authorization needed.</strong><br>
-          <span class="days">${Math.max(0, s.daysUntilExpiry)}</span> day(s) until token expires.`;
-        act.innerHTML = `
-          <button onclick="startAuth()">🔄 Re-authorize</button>
-          <small>Takes less than a minute.</small>
-        `;
-      } else {
-        el.className = 'status ok';
-        el.innerHTML = `✅ <strong>Connected.</strong> Token valid for ${s.daysUntilExpiry} more day(s).`;
-        act.innerHTML = `
-          <button class="secondary" onclick="startAuth()">🔄 Re-authorize (optional)</button>
-        `;
-      }
-    }
-
-    async function startAuth() {
-      try {
-        const result = await api.request('GET', '/auth-url');
-        window.open(result.url, '_blank');
-        document.getElementById('status').className = 'status info';
-        document.getElementById('status').textContent = '⏳ Waiting for authorization… Complete the login in the opened tab, then click Refresh.';
-        document.getElementById('actions').innerHTML += `
-          <br><button onclick="checkStatus()">🔃 Refresh status</button>
-        `;
-      } catch (e) {
-        alert('Error: ' + e.message);
-      }
-    }
-
-    checkStatus();
   </script>
 </body>
 </html>

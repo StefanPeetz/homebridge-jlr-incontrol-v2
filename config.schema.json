@@ -1,36 +1,48 @@
 {
-  "pluginAlias": "JlrSmartcar",
+  "pluginAlias": "JlrSmartcarPlatform",
   "pluginType": "platform",
   "singular": true,
   "schema": {
     "type": "object",
     "properties": {
-      "name":         { "title": "Name", "type": "string", "default": "JLR InControl" },
-      "clientId":     { "title": "Smartcar Client ID",     "type": "string", "required": true },
-      "clientSecret": { "title": "Smartcar Client Secret", "type": "string", "required": true },
-      "smartcarMode": {
-        "title": "Smartcar Mode",
+      "name": {
+        "title": "Name",
         "type": "string",
-        "enum": ["test", "live"],
-        "default": "test",
-        "description": "'test' = Smartcar Simulator (kein echtes Auto n\u00f6tig). 'live' = echtes Fahrzeug. Muss mit dem Dashboard-Modus \u00fcbereinstimmen!"
+        "default": "JLR Smartcar",
+        "required": true
       },
-      "hostIp": {
-        "title": "Homebridge Host IP",
+      "clientId": {
+        "title": "Smartcar Client ID",
         "type": "string",
-        "description": "IP des Raspberry Pi (z.B. 192.168.1.42). N\u00f6tig damit der Auth-Link im Log korrekt ist.",
-        "placeholder": "192.168.1.42"
+        "required": true,
+        "description": "Your Smartcar V3 Client ID (starts with client_01…). Find it at dashboard.smartcar.com → API credentials."
       },
-      "redirectUri":      { "title": "OAuth Redirect URI (optional)", "type": "string", "description": "Leer lassen – wird automatisch aus hostIp gebaut." },
-      "notifyWebhookUrl": { "title": "Re-auth Webhook URL (optional)", "type": "string" },
-      "pollInterval":     { "title": "Poll-Intervall (Sekunden)", "type": "integer", "default": 300, "minimum": 60 }
-    },
-    "required": ["clientId", "clientSecret"]
+      "clientSecret": {
+        "title": "Smartcar Client Secret",
+        "type": "string",
+        "required": true,
+        "description": "Your Smartcar Client Secret."
+      },
+      "userId": {
+        "title": "Smartcar User ID",
+        "type": "string",
+        "required": true,
+        "description": "Your Smartcar User ID. Find it at dashboard.smartcar.com → Connections. Copy the User ID shown for your account."
+      },
+      "pollIntervalSeconds": {
+        "title": "Poll Interval (seconds)",
+        "type": "integer",
+        "default": 60,
+        "minimum": 30,
+        "description": "How often to refresh vehicle data (minimum 30 s)."
+      },
+      "notifyWebhookUrl": {
+        "title": "Notification Webhook URL (optional)",
+        "type": "string",
+        "description": "Optional: POST webhook called when vehicle state changes."
+      }
+    }
   },
-  "layout": [
-    { "key": "name" },
-    { "type": "fieldset", "title": "Smartcar Credentials", "items": ["clientId", "clientSecret", "smartcarMode"] },
-    { "type": "fieldset", "title": "Netzwerk", "items": ["hostIp", "redirectUri"] },
-    { "type": "fieldset", "title": "Erweitert", "expandable": true, "expanded": false, "items": ["pollInterval", "notifyWebhookUrl"] }
-  ]
+  "form": null,
+  "display": null
 }

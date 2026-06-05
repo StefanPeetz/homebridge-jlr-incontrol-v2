@@ -1,6 +1,5 @@
 // V3: no per-vehicle tokens; only app-level token + userId needed
 export interface SmartcarSession {
-  userId: string;             // Smartcar userId obtained once via Connect
   appToken?: string;          // cached app-level access token
   appTokenExpiresAt?: number; // ms timestamp
 }
@@ -10,8 +9,8 @@ export interface PluginConfig {
   name: string;
   clientId: string;
   clientSecret: string;
+  userId: string;             // Smartcar userId – find in Dashboard → Connections
   hostIp?: string;
-  redirectUri?: string;
   pin?: string;
   pollIntervalSeconds?: number;
   notifyWebhookUrl?: string;

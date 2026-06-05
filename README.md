@@ -1,117 +1,81 @@
 # homebridge-jlr-smartcar
 
-[![npm](https://img.shields.io/npm/v/homebridge-jlr-smartcar)](https://www.npmjs.com/package/homebridge-jlr-smartcar)
-[![CI](https://github.com/StefanPeetz/homebridge-jlr-incontrol-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/StefanPeetz/homebridge-jlr-incontrol-v2/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Homebridge plugin for **Jaguar Land Rover** vehicles via the [Smartcar API V3](https://smartcar.com).
 
-Homebridge plugin for **Jaguar Land Rover InControl** – powered by the [Smartcar API](https://smartcar.com).
+## Features
 
-> **Why Smartcar?**  
-> JLR deprecated their unofficial password-based API in 2024 and now requires OTP/Passkey for all logins, making direct automation impossible. Smartcar holds an official JLR partnership and provides a stable OAuth 2.0 API.
+- 🔒 Lock / Unlock via HomeKit
+- 🔋 Battery level & charging state (EVs)
+- ⛽ Fuel level (combustion engines)
+- 📍 Location & motion detection
+- 🛣️ Odometer
+- 🔄 Automatic token refresh – no periodic re-login needed
 
-## Supported features
+## Requirements
 
-| Feature | Status |
-|---|---|
-| Lock / Unlock | ✅ |
-| Battery level (EV/PHEV) | ✅ |
-| Charging status | ✅ |
-| Low battery alert | ✅ |
-| Fuel level | ✅ |
-| Range (km) | ✅ |
-| Odometer | ✅ |
-| Location | ✅ |
-| Climate / Preconditioning | ❌ Not available via Smartcar |
-
-## Installation
-
-```bash
-npm install -g homebridge-jlr-smartcar
-```
-
-Or install via the **Homebridge UI** by searching for `homebridge-jlr-smartcar`.
+- Homebridge ≥ 1.6.0
+- Node.js ≥ 18
+- A [Smartcar developer account](https://dashboard.smartcar.com) with your JLR vehicle connected
 
 ## Setup
 
-### 1. Create a free Smartcar app
+### 1 – Create a Smartcar App
 
-1. Go to [dashboard.smartcar.com](https://dashboard.smartcar.com) and sign up
-2. Create a new application
-3. Add `http://localhost:52625/callback` to **Redirect URIs**
-4. Note your **Client ID** and **Client Secret**
+1. Go to [dashboard.smartcar.com](https://dashboard.smartcar.com) and create an app.
+2. Note down your **Client ID** and **Client Secret** from *API credentials*.
 
-### 2. Configure Homebridge
+### 2 – Connect your vehicle (one-time)
 
-Add to `config.json`:
+Smartcar V3 uses a **user-level connection** that you create once via the Smartcar Connect flow. The easiest way to do this is through the [Smartcar developer playground](https://smartcar.com/docs/getting-started/connect-your-vehicle).
+
+After connecting:
+1. Open [dashboard.smartcar.com](https://dashboard.smartcar.com) → **Connections** (or *Users & Connections*).
+2. Select your user entry.
+3. Copy the **User ID** (format: `sc_user_…` or a UUID).
+
+### 3 – Configure the plugin
+
+Add to your Homebridge `config.json`:
 
 ```json
 {
-  "platforms": [
-    {
-      "platform": "JlrInControl",
-      "name": "JLR InControl",
-      "clientId": "YOUR_SMARTCAR_CLIENT_ID",
-      "clientSecret": "YOUR_SMARTCAR_CLIENT_SECRET",
-      "pollIntervalSeconds": 300
-    }
-  ]
+  "platform": "JlrSmartcarPlatform",
+  "name": "JLR Smartcar",
+  "clientId": "client_01…",
+  "clientSecret": "your-secret",
+  "userId": "sc_user_…",
+  "pollIntervalSeconds": 60
 }
 ```
 
-### 3. Authorize your vehicle (one-time)
+| Field | Description |
+|---|---|
+| `clientId` | Smartcar V3 Client ID |
+| `clientSecret` | Smartcar Client Secret |
+| `userId` | Smartcar User ID (from Dashboard → Connections) |
+| `pollIntervalSeconds` | How often to refresh vehicle data (min 30 s, default 60 s) |
+| `notifyWebhookUrl` | *(optional)* Webhook URL for state-change notifications |
 
-Restart Homebridge. The logs will show:
+### 4 – Restart Homebridge
 
-```
-[Smartcar] ACTION REQUIRED: Open this URL in your browser:
-[Smartcar]   http://localhost:52625/auth
-```
+After saving the config, restart Homebridge. Your JLR vehicle should appear in HomeKit within a few seconds.
 
-Open that URL → log in with your JLR account → authorize. Tokens are saved to `~/.homebridge/smartcar-tokens.json` and refresh automatically – no repeat login needed.
+## How it works
 
-### Configuration options
+This plugin uses **Smartcar API V3** exclusively:
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `clientId` | string | **required** | Smartcar Client ID |
-| `clientSecret` | string | **required** | Smartcar Client Secret |
-| `redirectUri` | string | `http://localhost:52625/callback` | Must match your Smartcar app settings |
-| `pin` | string | | Vehicle PIN (reserved for future use) |
-| `pollIntervalSeconds` | integer | `300` | How often to poll vehicle state (min: 60) |
+- An **app-level access token** is obtained via `client_credentials` (auto-refreshed, no user interaction).
+- Every API call passes your **User ID** in the `sc-user-id` header.
+- No OAuth browser flow is required after the initial one-time vehicle connection.
 
-## Smartcar pricing
+## Troubleshooting
 
-| Tier | Calls/month | Price |
-|---|---|---|
-| Free | 500 | $0 |
-| Starter | Unlimited | $2.99 / month |
-
-At 300s poll interval: ~8,640 calls/month → Starter plan recommended for daily use.  
-At 1800s (30 min): ~1,440 calls/month → fits within free tier.
-
-## Building from source
-
-```bash
-git clone https://github.com/StefanPeetz/homebridge-jlr-incontrol-v2.git
-cd homebridge-jlr-incontrol-v2
-npm install
-npm run build
-```
-
-## Releasing a new version
-
-1. Bump `version` in `package.json`
-2. Commit and push to `main`
-3. GitHub Actions auto-creates the Git tag
-4. Create a **GitHub Release** from that tag
-5. The `publish.yml` workflow automatically publishes to npm
-
-> **Prerequisite:** Add your npm token as a repository secret named `NPM_TOKEN`  
-> (GitHub repo → Settings → Secrets → Actions → New secret)
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md).
+| Problem | Solution |
+|---|---|
+| `userId is missing from config` | Add the `userId` field to your config (see step 2). |
+| `401 Unauthorized` | Check your `clientId` and `clientSecret`. |
+| `404 / no vehicles found` | Make sure your vehicle is connected in the Smartcar Dashboard. |
+| Vehicle not updating | Lower `pollIntervalSeconds` (min 30 s). |
 
 ## License
 

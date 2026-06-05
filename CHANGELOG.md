@@ -1,21 +1,23 @@
 # Changelog
 
-## [1.0.8] - 2026-06-05
-### Fixed
-- `VehicleAccessory` Konstruktor korrekt mit 4 Argumenten aufgerufen
-- Polling wird separat via `startPolling()` gestartet
-- TypeScript Build-Fehler TS2554 behoben
+## [1.1.0] – 2026-06-05
 
-## [1.0.7] - 2026-06-05
-### Breaking / Migration
-- **Vollständige Migration auf Smartcar API V3**
-- Token: OAuth Code Exchange → `client_credentials` gegen `iam.smartcar.com`
-- API Base: `api.smartcar.com/v2.0` → `vehicle.api.smartcar.com/v3`
-- Neuer `sc-user-id` Header bei allen API-Requests
-- Session speichert nur noch `userId` (kein Refresh Token mehr)
-- Connect Flow bleibt **einmalig** nötig um `userId` zu erhalten
-- Alte Session-Datei löschen: `rm ~/.homebridge/smartcar-tokens.json`
+### Breaking Change
+- Removed the built-in OAuth Connect server (port 52625).
+  The `client_01…` Client ID used by Smartcar V3 is a `client_credentials`
+  credential and **cannot** be used in the browser-based Connect flow.
 
-## [1.0.0] - 2026-06-05
-### Breaking
-- Migration von direkter JLR API zu Smartcar
+### Added
+- New required config field: `userId`.
+  Obtain it once from the Smartcar Dashboard → Connections and paste it
+  into the plugin config. No further logins are needed.
+- Custom UI (`homebridge-ui`): step-by-step instructions + live connection
+  test (calls the Smartcar API directly to verify credentials).
+
+### Removed
+- Local HTTP server on port 52625 (OAuth redirect listener).
+- `redirectUri` and `hostIp` config fields (no longer needed).
+- Token file (`smartcar-session.json`) – state is now fully in-memory.
+
+## [1.0.8] – 2026-06-05
+- Initial public release (OAuth flow – broken with V3 client_01 IDs).

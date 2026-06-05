@@ -3,7 +3,6 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { SmartcarClient } from './smartcar-client';
 import { VehicleAccessory } from './vehicle-accessory';
 import { PluginConfig, JlrVehicleSummary } from './types';
-import * as path from 'path';
 
 export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -22,21 +21,20 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     this.Characteristic = this.api.hap.Characteristic;
     this.config         = config as unknown as PluginConfig;
 
-    const storePath = path.join(api.user.storagePath(), 'smartcar-session.json');
+    if (!this.config.userId) {
+      this.log.error(
+        '[Smartcar] ❌ userId is missing from config! ' +
+        'Open the Smartcar Dashboard → Connections, copy your userId and add it to the plugin config.',
+      );
+    }
 
     this.client = new SmartcarClient({
       clientId:         this.config.clientId,
       clientSecret:     this.config.clientSecret,
-      hostIp:           this.config.hostIp,
-      redirectUri:      this.config.redirectUri,
-      tokenStorePath:   storePath,
+      userId:           this.config.userId,
       notifyWebhookUrl: this.config.notifyWebhookUrl,
       log:              this.log,
     });
-
-    this.client.onReauthRequired = (required) => {
-      if (required) this.log.warn('[Platform] ⚠️  Re-auth nötig! Öffne: http://%s:52625/auth', this.config.hostIp ?? 'localhost');
-    };
 
     this.api.on('didFinishLaunching', () => { this.discoverDevices(); });
   }

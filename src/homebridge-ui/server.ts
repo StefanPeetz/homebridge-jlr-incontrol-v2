@@ -1,58 +1,46 @@
 import { HomebridgePluginUiServer } from '@homebridge/plugin-ui-utils';
-import * as path from 'path';
-import * as fs from 'fs';
+import axios from 'axios';
 
-const OAUTH_PORT = 52625;
-const REFRESH_TOKEN_TTL_MS     = 60 * 24 * 60 * 60 * 1000;
-const REAUTH_WARNING_THRESHOLD =  7 * 24 * 60 * 60 * 1000;
-
-interface TokenStore {
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
-  refresh_token_obtained_at?: number;
-}
+const SMARTCAR_IAM_URL  = 'https://iam.smartcar.com/oauth2/token';
+const SMARTCAR_API_BASE = 'https://vehicle.api.smartcar.com/v3';
 
 class JlrUiServer extends HomebridgePluginUiServer {
-  private tokenPath: string;
-
   constructor() {
     super();
-    this.tokenPath = path.join(this.homebridgeStoragePath, 'smartcar-tokens.json');
-
-    this.onRequest('/auth-status', () => this.handleAuthStatus());
-    this.onRequest('/auth-url',    () => this.handleAuthUrl());
-
+    this.onRequest('/test-connection', (body: { clientId: string; clientSecret: string; userId: string }) =>
+      this.handleTestConnection(body),
+    );
     this.ready();
   }
 
-  private loadTokens(): TokenStore | null {
+  private async handleTestConnection(body: { clientId: string; clientSecret: string; userId: string }) {
+    const { clientId, clientSecret, userId } = body;
+
+    if (!clientId || !clientSecret || !userId) {
+      return { ok: false, message: 'clientId, clientSecret und userId sind alle erforderlich.' };
+    }
+
     try {
-      return JSON.parse(fs.readFileSync(this.tokenPath, 'utf-8')) as TokenStore;
-    } catch {
-      return null;
-    }
-  }
+      // 1. Fetch app token
+      const tokenResp = await axios.post(
+        SMARTCAR_IAM_URL,
+        new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+      );
+      const appToken: string = tokenResp.data.access_token;
 
-  private handleAuthStatus() {
-    const tokens = this.loadTokens();
-    if (!tokens) {
-      return { authorized: false, reauthRequired: true, daysUntilExpiry: 0 };
-    }
-    const obtained = tokens.refresh_token_obtained_at
-      ?? (tokens.expires_at - 7200 * 1000);
-    const expiresAt = obtained + REFRESH_TOKEN_TTL_MS;
-    const msLeft = expiresAt - Date.now();
-    const daysUntilExpiry = Math.round(msLeft / (24 * 60 * 60 * 1000));
-    return {
-      authorized:     true,
-      reauthRequired: msLeft < REAUTH_WARNING_THRESHOLD,
-      daysUntilExpiry,
-    };
-  }
+      // 2. Fetch vehicles
+      const vehiclesResp = await axios.get<{ vehicles: string[] }>(`${SMARTCAR_API_BASE}/vehicles`, {
+        headers: { Authorization: `Bearer ${appToken}`, 'sc-user-id': userId },
+      });
+      const count = vehiclesResp.data.vehicles?.length ?? 0;
 
-  private handleAuthUrl() {
-    return { url: `http://localhost:${OAUTH_PORT}/auth` };
+      return { ok: true, message: `✅ Verbindung erfolgreich! ${count} Fahrzeug(e) gefunden.` };
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string }; status?: number }; message?: string })
+        ?.response?.data?.message ?? (err as Error)?.message ?? 'Unbekannter Fehler';
+      return { ok: false, message: `❌ Fehler: ${msg}` };
+    }
   }
 }
 
