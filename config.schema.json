@@ -2,12 +2,12 @@
   "pluginAlias": "JlrInControl",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Jaguar Land Rover InControl via Smartcar API. Create a free app at https://dashboard.smartcar.com, then paste your Client ID and Secret below. On first start, open http://homebridge-ip:52625/auth in your browser to authorize your vehicle.",
+  "headerDisplay": "Jaguar Land Rover InControl via [Smartcar API](https://smartcar.com). Create a free app at [dashboard.smartcar.com](https://dashboard.smartcar.com), add `http://localhost:52625/callback` as redirect URI, then paste your credentials below.",
   "schema": {
     "type": "object",
     "properties": {
       "name": {
-        "title": "Name",
+        "title": "Platform name",
         "type": "string",
         "default": "JLR InControl"
       },
@@ -22,18 +22,27 @@
         "required": true
       },
       "redirectUri": {
-        "title": "Redirect URI (optional, default: http://localhost:52625/callback)",
-        "type": "string"
-      },
-      "pin": {
-        "title": "Vehicle PIN (4 digits, for future use)",
-        "type": "string"
+        "title": "OAuth Redirect URI",
+        "type": "string",
+        "default": "http://localhost:52625/callback",
+        "description": "Must exactly match what you entered in the Smartcar dashboard."
       },
       "pollIntervalSeconds": {
-        "title": "Poll interval (seconds, default: 300)",
+        "title": "Poll interval (seconds)",
         "type": "integer",
         "default": 300,
-        "minimum": 60
+        "minimum": 60,
+        "description": "How often to fetch vehicle state. At 300 s ≈ 8,640 calls/month (Starter plan). At 1800 s ≈ 1,440/month (Free plan)."
+      },
+      "notifyWebhookUrl": {
+        "title": "Re-auth notification webhook URL (optional)",
+        "type": "string",
+        "description": "When the Smartcar token is about to expire (7 days before), a POST request with JSON body is sent here. Works with ntfy.sh, Pushover, Home Assistant webhooks, n8n, etc. Leave empty to disable."
+      },
+      "pin": {
+        "title": "Vehicle PIN (reserved)",
+        "type": "string",
+        "description": "Currently unused. Reserved for future JLR security PIN support."
       }
     }
   }

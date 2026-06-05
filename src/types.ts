@@ -1,30 +1,8 @@
 export interface SmartcarTokens {
   access_token: string;
   refresh_token: string;
-  expires_at: number; // unix ms
-}
-
-export interface JlrVehicleSummary {
-  id: string;      // Smartcar vehicle ID
-  vin: string;
-  nickname: string;
-  model?: string;
-}
-
-export interface JlrVehicleState {
-  vin: string;
-  isLocked: boolean;
-  batteryLevel?: number;    // 0-100
-  charging?: boolean;
-  lowBattery?: boolean;
-  fuelLevelPercent?: number;
-  rangeKm?: number;
-  odometerKm?: number;
-  latitude?: number;
-  longitude?: number;
-  anyDoorOpen?: boolean;
-  isMoving?: boolean;
-  lastUpdated: string;
+  expires_at: number;                    // ms timestamp: when access_token expires
+  refresh_token_obtained_at?: number;   // ms timestamp: when this refresh_token was issued
 }
 
 export interface PluginConfig {
@@ -35,5 +13,27 @@ export interface PluginConfig {
   redirectUri?: string;
   pin?: string;
   pollIntervalSeconds?: number;
-  region?: 'ROW' | 'NA';
+  notifyWebhookUrl?: string;             // Optional: POST when re-auth is needed
+}
+
+export interface JlrVehicleSummary {
+  id: string;
+  vin: string;
+  nickname: string;
+  model?: string;
+}
+
+export interface JlrVehicleState {
+  vin: string;
+  isLocked: boolean;
+  batteryLevel?: number;      // 0-100 %
+  charging?: boolean;
+  lowBattery?: boolean;       // true below 20 %
+  fuelLevelPercent?: number;  // 0-100 %
+  rangeKm?: number;
+  odometerKm?: number;
+  latitude?: number;
+  longitude?: number;
+  isMoving?: boolean;
+  lastUpdated: string;        // ISO 8601
 }

@@ -8,7 +8,10 @@
 //  4. We exchange code for tokens and store them in tokenStore
 //  5. Plugin uses refresh_token automatically from then on
 //
-// Smartcar docs: https://smartcar.com/docs/api
+// Re-auth notification:
+//  - 7 days before refresh_token expires: HomeKit "Auth Required" sensor fires
+//    + optional webhook POST to notifyWebhookUrl
+//  - On actual refresh failure: same, plus OAuth server starts automatically
 //
 
 import axios, { AxiosInstance } from 'axios';
@@ -23,31 +26,43 @@ const SMARTCAR_TOKEN_URL  = 'https://auth.smartcar.com/oauth/token';
 const SMARTCAR_API_BASE   = 'https://api.smartcar.com/v2.0';
 const OAUTH_SERVER_PORT   = 52625;
 
+// Smartcar refresh tokens expire after ~60 days.
+// We warn 7 days before expiry so there is plenty of time to re-auth.
+const REFRESH_TOKEN_TTL_MS      = 60 * 24 * 60 * 60 * 1000; // 60 days
+const REAUTH_WARNING_THRESHOLD  =  7 * 24 * 60 * 60 * 1000; //  7 days
+
 export class SmartcarClient {
   private http: AxiosInstance;
   private tokens?: SmartcarTokens;
   private tokenPath: string;
   private oauthServer?: http.Server;
-  private oauthResolve?: () => void;
 
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly redirectUri: string;
+  private readonly notifyWebhookUrl?: string;
   private readonly log: Logger;
+
+  // Callback invoked whenever re-auth state changes.
+  // true  = re-auth is required (HomeKit sensor should trip)
+  // false = all good (sensor clears)
+  public onReauthRequired?: (required: boolean) => void;
 
   constructor(params: {
     clientId: string;
     clientSecret: string;
     redirectUri?: string;
     tokenStorePath: string;
+    notifyWebhookUrl?: string;
     log: Logger;
   }) {
-    this.clientId     = params.clientId;
-    this.clientSecret = params.clientSecret;
-    this.redirectUri  = params.redirectUri ?? `http://localhost:${OAUTH_SERVER_PORT}/callback`;
-    this.tokenPath    = params.tokenStorePath;
-    this.log          = params.log;
-    this.http         = axios.create({ timeout: 30000 });
+    this.clientId          = params.clientId;
+    this.clientSecret      = params.clientSecret;
+    this.redirectUri       = params.redirectUri ?? `http://localhost:${OAUTH_SERVER_PORT}/callback`;
+    this.tokenPath         = params.tokenStorePath;
+    this.notifyWebhookUrl  = params.notifyWebhookUrl;
+    this.log               = params.log;
+    this.http              = axios.create({ timeout: 30000 });
   }
 
   // ─── Token persistence ────────────────────────────────────────────────────
@@ -67,9 +82,61 @@ export class SmartcarClient {
     }
   }
 
+  // ─── Re-auth warning ──────────────────────────────────────────────────────
+
+  /**
+   * Returns true if the refresh_token is less than REAUTH_WARNING_THRESHOLD away
+   * from expiry (or already expired / missing).
+   */
+  needsReauth(): boolean {
+    if (!this.tokens) return true;
+    const refreshTokenExpiresAt =
+      (this.tokens.refresh_token_obtained_at ?? (this.tokens.expires_at - 7200 * 1000))
+      + REFRESH_TOKEN_TTL_MS;
+    return refreshTokenExpiresAt - Date.now() < REAUTH_WARNING_THRESHOLD;
+  }
+
+  /** Days until re-auth is required (negative = already overdue). */
+  daysUntilReauth(): number {
+    if (!this.tokens) return 0;
+    const refreshTokenExpiresAt =
+      (this.tokens.refresh_token_obtained_at ?? (this.tokens.expires_at - 7200 * 1000))
+      + REFRESH_TOKEN_TTL_MS;
+    return Math.round((refreshTokenExpiresAt - Date.now()) / (24 * 60 * 60 * 1000));
+  }
+
+  private async triggerReauthNotification(): Promise<void> {
+    const days = this.daysUntilReauth();
+    const authUrl = `http://localhost:${OAUTH_SERVER_PORT}/auth`;
+
+    this.log.warn(
+      '[Smartcar] ⚠️  Re-auth required in %d day(s). Open: %s',
+      Math.max(0, days),
+      authUrl,
+    );
+
+    // Trip HomeKit sensor
+    this.onReauthRequired?.(true);
+
+    // Optional webhook (e.g. ntfy.sh, Pushover, Home Assistant, n8n)
+    if (this.notifyWebhookUrl) {
+      try {
+        await this.http.post(this.notifyWebhookUrl, {
+          title:   'JLR InControl: Re-auth required',
+          message: `Smartcar token expires in ${Math.max(0, days)} day(s). Open ${authUrl} to re-authorize.`,
+          url:     authUrl,
+          days,
+        });
+        this.log.info('[Smartcar] Webhook notification sent to %s', this.notifyWebhookUrl);
+      } catch (err) {
+        this.log.warn('[Smartcar] Webhook notification failed: %s', (err as Error).message);
+      }
+    }
+  }
+
   // ─── Session management ───────────────────────────────────────────────────
 
-  private isTokenValid(): boolean {
+  private isAccessTokenValid(): boolean {
     return !!(this.tokens && this.tokens.expires_at > Date.now() + 60_000);
   }
 
@@ -84,7 +151,15 @@ export class SmartcarClient {
       return;
     }
 
-    if (!this.isTokenValid()) {
+    // Proactive warning: 7 days before refresh_token dies
+    if (this.needsReauth()) {
+      await this.triggerReauthNotification();
+    } else {
+      // Clear HomeKit sensor if everything is fine
+      this.onReauthRequired?.(false);
+    }
+
+    if (!this.isAccessTokenValid()) {
       await this.refreshTokens();
     }
   }
@@ -104,13 +179,15 @@ export class SmartcarClient {
 
   private startOAuthFlow(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.oauthResolve = resolve;
+      // If server already running (e.g. triggered twice), don't double-bind
+      if (this.oauthServer?.listening) {
+        return;
+      }
 
       this.oauthServer = http.createServer((req, res) => {
         const url = new URL(req.url ?? '/', `http://localhost:${OAUTH_SERVER_PORT}`);
 
         if (url.pathname === '/auth') {
-          // Redirect user to Smartcar
           const authUrl = this.buildAuthUrl();
           res.writeHead(302, { Location: authUrl });
           res.end();
@@ -131,8 +208,13 @@ export class SmartcarClient {
           this.exchangeCode(code)
             .then(() => {
               res.writeHead(200, { 'Content-Type': 'text/html' });
-              res.end('<h2>✅ Smartcar connected! You can close this tab.</h2><p>Homebridge will now restart its JLR plugin.</p>');
+              res.end(
+                '<h2>✅ Smartcar connected!</h2>' +
+                '<p>You can close this tab. Homebridge will continue automatically.</p>',
+              );
               this.oauthServer?.close();
+              // Clear the HomeKit alert
+              this.onReauthRequired?.(false);
               resolve();
             })
             .catch(err => {
@@ -148,22 +230,11 @@ export class SmartcarClient {
       });
 
       this.oauthServer.listen(OAUTH_SERVER_PORT, () => {
-        this.log.warn(
-          '[Smartcar] ════════════════════════════════════════════════════',
-        );
-        this.log.warn(
-          '[Smartcar] ACTION REQUIRED: Open this URL in your browser to',
-        );
-        this.log.warn(
-          '[Smartcar] connect your Jaguar/Land Rover account:',
-        );
-        this.log.warn(
-          '[Smartcar]   http://localhost:%d/auth',
-          OAUTH_SERVER_PORT,
-        );
-        this.log.warn(
-          '[Smartcar] ════════════════════════════════════════════════════',
-        );
+        const authUrl = `http://localhost:${OAUTH_SERVER_PORT}/auth`;
+        this.log.warn('[Smartcar] ════════════════════════════════════════════════════');
+        this.log.warn('[Smartcar] ACTION REQUIRED: Open this URL in your browser:');
+        this.log.warn('[Smartcar]   %s', authUrl);
+        this.log.warn('[Smartcar] ════════════════════════════════════════════════════');
       });
     });
   }
@@ -184,9 +255,10 @@ export class SmartcarClient {
     );
 
     this.saveTokens({
-      access_token:  resp.data.access_token,
-      refresh_token: resp.data.refresh_token,
-      expires_at:    Date.now() + (resp.data.expires_in ?? 7200) * 1000,
+      access_token:                resp.data.access_token,
+      refresh_token:               resp.data.refresh_token,
+      expires_at:                  Date.now() + (resp.data.expires_in ?? 7200) * 1000,
+      refresh_token_obtained_at:   Date.now(),
     });
   }
 
@@ -208,14 +280,20 @@ export class SmartcarClient {
       );
 
       this.saveTokens({
-        access_token:  resp.data.access_token,
-        refresh_token: resp.data.refresh_token ?? this.tokens.refresh_token,
-        expires_at:    Date.now() + (resp.data.expires_in ?? 7200) * 1000,
+        access_token:              resp.data.access_token,
+        refresh_token:             resp.data.refresh_token ?? this.tokens.refresh_token,
+        expires_at:                Date.now() + (resp.data.expires_in ?? 7200) * 1000,
+        // Only reset the clock if Smartcar issued a new refresh_token
+        refresh_token_obtained_at: resp.data.refresh_token
+          ? Date.now()
+          : this.tokens.refresh_token_obtained_at,
       });
     } catch (err) {
-      this.log.error('[Smartcar] Token refresh failed – re-auth required');
+      this.log.error('[Smartcar] Token refresh failed – starting re-auth...');
       this.tokens = undefined;
       fs.rmSync(this.tokenPath, { force: true });
+      await this.triggerReauthNotification();
+      await this.startOAuthFlow();
       throw err;
     }
   }
@@ -252,8 +330,7 @@ export class SmartcarClient {
       ids.map(async (id) => {
         try {
           const info = await this.get<{
-            make: string; model: string; year: number;
-            id: string; vin?: string;
+            make: string; model: string; year: number; id: string; vin?: string;
           }>(`/vehicles/${id}`);
           const vinData = await this.get<{ vin: string }>(`/vehicles/${id}/vin`);
           return {
@@ -262,7 +339,7 @@ export class SmartcarClient {
             nickname: `${info.year} ${info.make} ${info.model}`,
             model:    info.model,
           } as JlrVehicleSummary;
-        } catch (err) {
+        } catch {
           this.log.warn('[Smartcar] Could not load info for vehicle %s', id);
           return { id, vin: id, nickname: id } as JlrVehicleSummary;
         }
@@ -280,13 +357,12 @@ export class SmartcarClient {
         battery?: { percentRemaining: number; range: { value: number; unit: string } };
         fuel?:    { percentRemaining: number; range: { value: number; unit: string } };
       }>(`/vehicles/${vehicleId}/charge`),
-      this.get<{ latitude: number; longitude: number; speed?: { value: number }; heading?: number }>(
+      this.get<{ latitude: number; longitude: number; speed?: { value: number } }>(
         `/vehicles/${vehicleId}/location`,
       ),
       this.get<{ distance: { value: number; unit: string } }>(`/vehicles/${vehicleId}/odometer`),
     ]);
 
-    // Charge / battery
     let batteryLevel: number | undefined;
     let charging: boolean | undefined;
     let fuelLevelPercent: number | undefined;
@@ -297,40 +373,27 @@ export class SmartcarClient {
       charging = c.state === 'CHARGING';
       if (c.battery) {
         batteryLevel = Math.round(c.battery.percentRemaining * 100);
-        const rangeVal = c.battery.range.value;
-        rangeKm = c.battery.range.unit === 'miles'
-          ? Math.round(rangeVal * 1.60934)
-          : Math.round(rangeVal);
+        const rv = c.battery.range.value;
+        rangeKm = c.battery.range.unit === 'miles' ? Math.round(rv * 1.60934) : Math.round(rv);
       }
-      if (c.fuel) {
-        fuelLevelPercent = Math.round(c.fuel.percentRemaining * 100);
-      }
-    } else {
-      this.log.debug('[Smartcar] charge endpoint failed: %s', chargeRes.reason?.message);
+      if (c.fuel) fuelLevelPercent = Math.round(c.fuel.percentRemaining * 100);
     }
 
-    // Location
     let latitude: number | undefined;
     let longitude: number | undefined;
     let isMoving: boolean | undefined;
-
     if (locationRes.status === 'fulfilled') {
       latitude  = locationRes.value.latitude;
       longitude = locationRes.value.longitude;
-      const speed = locationRes.value.speed?.value ?? 0;
-      isMoving = speed > 2;
+      isMoving  = (locationRes.value.speed?.value ?? 0) > 2;
     }
 
-    // Odometer
     let odometerKm: number | undefined;
     if (odometerRes.status === 'fulfilled') {
       const d = odometerRes.value.distance;
-      odometerKm = d.unit === 'miles'
-        ? Math.round(d.value * 1.60934)
-        : Math.round(d.value);
+      odometerKm = d.unit === 'miles' ? Math.round(d.value * 1.60934) : Math.round(d.value);
     }
 
-    // Lock status via security endpoint
     let isLocked = false;
     try {
       const sec = await this.get<{ isLocked: boolean }>(`/vehicles/${vehicleId}/security`);
@@ -340,17 +403,10 @@ export class SmartcarClient {
     }
 
     return {
-      vin,
-      isLocked,
-      batteryLevel,
-      charging,
+      vin, isLocked, batteryLevel, charging,
       lowBattery: batteryLevel !== undefined ? batteryLevel < 20 : undefined,
-      fuelLevelPercent,
-      rangeKm,
-      odometerKm,
-      latitude,
-      longitude,
-      isMoving,
+      fuelLevelPercent, rangeKm, odometerKm,
+      latitude, longitude, isMoving,
       lastUpdated: new Date().toISOString(),
     };
   }
