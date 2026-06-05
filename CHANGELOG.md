@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.2] - 2026-06-05
+
+### Fixed
+- Clean release trigger after CI workflow fixes
+
 ## [1.0.1] - 2026-06-05
 
 ### Fixed
@@ -24,8 +29,6 @@
 - Odometer in km
 - Location (latitude / longitude)
 - Configurable poll interval (default 300s)
-- GitHub Actions: CI build on every push/PR
-- GitHub Actions: automatic npm publish on GitHub Release
 
 ### Removed
 - Direct JLR IFAS/IFOP/IF9 auth (no longer functional)
