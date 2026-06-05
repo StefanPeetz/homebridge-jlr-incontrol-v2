@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JLR Smartcar – Setup</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; color: #333; max-width: 560px; }
+    h2   { margin-top: 0; }
+    .status { padding: 12px 16px; border-radius: 8px; margin: 16px 0; font-weight: 500; }
+    .status.ok      { background: #d4edda; color: #155724; }
+    .status.warn    { background: #fff3cd; color: #856404; }
+    .status.error   { background: #f8d7da; color: #721c24; }
+    .status.info    { background: #d1ecf1; color: #0c5460; }
+    button { padding: 10px 20px; background: #007bff; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 8px; }
+    button:hover { background: #0056b3; }
+    button.secondary { background: #6c757d; }
+    button.secondary:hover { background: #495057; }
+    code  { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .days { font-size: 28px; font-weight: bold; }
+    small { color: #666; font-size: 12px; display: block; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h2>🚗 JLR Smartcar – Authorization</h2>
+  <div id="status" class="status info">Checking authorization status…</div>
+  <div id="actions"></div>
+
+  <script>
+    const api = window.homebridge;
+
+    async function checkStatus() {
+      try {
+        const result = await api.request('GET', '/auth-status');
+        render(result);
+      } catch (e) {
+        document.getElementById('status').className = 'status error';
+        document.getElementById('status').textContent = 'Could not connect to plugin server: ' + e.message;
+      }
+    }
+
+    function render(s) {
+      const el = document.getElementById('status');
+      const act = document.getElementById('actions');
+
+      if (!s.authorized) {
+        el.className = 'status error';
+        el.innerHTML = '❌ <strong>Not authorized.</strong> You need to connect your JLR account.';
+        act.innerHTML = `
+          <button onclick="startAuth()">🔗 Connect JLR Account</button>
+          <small>Opens the Smartcar consent page in a new tab.</small>
+        `;
+      } else if (s.reauthRequired) {
+        el.className = 'status warn';
+        el.innerHTML = `⚠️ <strong>Re-authorization needed.</strong><br>
+          <span class="days">${Math.max(0, s.daysUntilExpiry)}</span> day(s) until token expires.`;
+        act.innerHTML = `
+          <button onclick="startAuth()">🔄 Re-authorize</button>
+          <small>Takes less than a minute.</small>
+        `;
+      } else {
+        el.className = 'status ok';
+        el.innerHTML = `✅ <strong>Connected.</strong> Token valid for ${s.daysUntilExpiry} more day(s).`;
+        act.innerHTML = `
+          <button class="secondary" onclick="startAuth()">🔄 Re-authorize (optional)</button>
+        `;
+      }
+    }
+
+    async function startAuth() {
+      try {
+        const result = await api.request('GET', '/auth-url');
+        window.open(result.url, '_blank');
+        document.getElementById('status').className = 'status info';
+        document.getElementById('status').textContent = '⏳ Waiting for authorization… Complete the login in the opened tab, then click Refresh.';
+        document.getElementById('actions').innerHTML += `
+          <br><button onclick="checkStatus()">🔃 Refresh status</button>
+        `;
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    checkStatus();
+  </script>
+</body>
+</html>
