@@ -1,18 +1,15 @@
-// V3: no per-vehicle tokens; only app-level token + userId needed
-export interface SmartcarSession {
-  appToken?: string;
-  appTokenExpiresAt?: number;
-}
-
-export interface PluginConfig {
+export interface SmartcarConfig {
   platform: string;
   name: string;
   clientId: string;
   clientSecret: string;
-  managementToken: string;    // application_management_token from Smartcar Dashboard
-  userId?: string;            // optional override; auto-resolved if omitted
+  userId?: string;            // persisted after first Connect; not entered manually
   pollIntervalSeconds?: number;
-  notifyWebhookUrl?: string;
+}
+
+export interface SmartcarSession {
+  appToken?: string;
+  appTokenExpiresAt?: number;
 }
 
 export interface JlrVehicleSummary {

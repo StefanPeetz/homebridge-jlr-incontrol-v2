@@ -1,72 +1,127 @@
 # homebridge-jlr-smartcar
 
-Homebridge plugin for **Jaguar Land Rover** vehicles via the [Smartcar API V3](https://smartcar.com).
+[![npm](https://img.shields.io/npm/v/homebridge-jlr-smartcar.svg)](https://www.npmjs.com/package/homebridge-jlr-smartcar)
+[![Homebridge](https://img.shields.io/badge/homebridge-%E2%89%A51.6.0-blueviolet)](https://homebridge.io)
+
+Homebridge-Plugin für **Jaguar Land Rover InControl** über die [Smartcar API V3](https://smartcar.com).
 
 ## Features
 
-- 🔒 Lock / Unlock via HomeKit
-- 🔋 Battery level & charging state (EVs)
-- ⛽ Fuel level (combustion engines)
-- 📍 Location & motion detection
-- 🛣️ Odometer
-- 🔄 Automatic token refresh – no periodic re-login needed
+- 🔒 Türen sperren / entsperren über Apple Home
+- 🔋 Akkustand & Ladezustand (EV)
+- ⛽ Tankstand
+- 📍 Standort & Kilometerstand
+- 🔄 Automatisches Polling (konfigurierbar)
 
-## Requirements
+---
 
-- Homebridge ≥ 1.6.0
-- Node.js ≥ 18
-- A [Smartcar developer account](https://dashboard.smartcar.com) with your JLR vehicle connected
+## Voraussetzungen
 
-## Setup
+1. **Smartcar-Account** anlegen unter [dashboard.smartcar.com](https://dashboard.smartcar.com)
+2. Eine neue Anwendung erstellen und folgende **Redirect URI** eintragen:
+   ```
+   http://127.0.0.1:52625/exchange
+   ```
+3. **Client ID** und **Client Secret** aus dem Dashboard notieren.
 
-### 1 – Connect your vehicle (one-time)
+---
 
-Connect your JLR vehicle once via [Smartcar Connect](https://smartcar.com/docs/getting-started/connect-your-vehicle). You can use the Smartcar developer playground for this.
+## Installation
 
-### 2 – Get your credentials
+### Über Homebridge UI (empfohlen)
 
-From [dashboard.smartcar.com](https://dashboard.smartcar.com) → your app:
+Suche in der Homebridge Plugin-Suche nach `homebridge-jlr-smartcar` und installiere das Plugin.
 
-| Field | Where to find |
-|---|---|
-| **Client ID** | *API credentials* section |
-| **Client Secret** | *API credentials* section |
-| **Application Management Token** | *Application Configuration* section |
+### Manuell
 
-> **No userId needed** – it is resolved automatically via the Management Token.
+```bash
+npm install -g homebridge-jlr-smartcar
+```
 
-### 3 – Configure the plugin
+---
+
+## Konfiguration
+
+Trage in den Plugin-Einstellungen (oder direkt in `config.json`) ein:
 
 ```json
 {
   "platform": "JlrSmartcarPlatform",
-  "name": "JLR Smartcar",
+  "name": "JLR",
   "clientId": "client_01…",
-  "clientSecret": "your-secret",
-  "managementToken": "your-management-token",
+  "clientSecret": "dein-secret",
   "pollIntervalSeconds": 60
 }
 ```
 
-### 4 – Restart Homebridge
+| Feld | Pflicht | Beschreibung |
+|------|---------|-------------|
+| `clientId` | ✅ | Smartcar Client ID (beginnt mit `client_01…`) |
+| `clientSecret` | ✅ | Smartcar Client Secret |
+| `pollIntervalSeconds` | ❌ | Abfrageintervall in Sekunden (Standard: 60, Min: 30) |
 
-Your JLR vehicle appears in HomeKit within seconds.
+---
 
-## How it works
+## Fahrzeug verbinden (einmalig)
 
-1. On startup, the plugin calls `GET /v2.0/management/connections` with your Management Token to resolve the `userId` automatically.
-2. An **app-level access token** is fetched via `client_credentials` (auto-refreshed).
-3. Every API call passes the resolved `userId` in the `sc-user-id` header.
+Das Plugin nutzt den offiziellen **Smartcar Connect-Flow**:
 
-## Troubleshooting
+1. Starte Homebridge nach der Konfiguration.
+2. Im Homebridge-Log erscheint:
+   ```
+   [JLR InControl] Kein userId gefunden. Bitte verbinde dein Fahrzeug...
+   [Smartcar Connect] Callback-Server lauscht auf http://127.0.0.1:52625/exchange
+   ```
+3. Öffne die **Connect-URL** im Browser. Diese wird im Log angezeigt oder ist über die Plugin-UI abrufbar.
+4. Melde dich mit deinen **JLR InControl-Zugangsdaten** an und erteile die Berechtigungen.
+5. Nach erfolgreicher Verbindung erscheint eine Bestätigungsseite im Browser.
+6. Homebridge erkennt das Fahrzeug automatisch — **kein Neustart nötig**.
 
-| Problem | Solution |
-|---|---|
-| `managementToken fehlt` | Add `managementToken` to your config. |
-| `No live connections found` | Connect your vehicle at [connect.smartcar.com](https://connect.smartcar.com) first. |
-| `401 Unauthorized` | Check your `clientId` and `clientSecret`. |
-| Vehicle not updating | Lower `pollIntervalSeconds` (min 30 s). |
+Die `user_id` wird dauerhaft gespeichert. Bei einem Neustart von Homebridge ist kein erneuter Connect-Flow nötig.
 
-## License
+---
 
-MIT
+## Technischer Ablauf
+
+```
+1. Plugin startet lokalen HTTP-Server auf Port 52625
+2. Nutzer öffnet Smartcar Connect URL im Browser
+3. Nutzer meldet sich mit JLR-Zugangsdaten an
+4. Smartcar leitet weiter zu:
+   http://127.0.0.1:52625/exchange?user_id=<uuid>
+5. Plugin speichert user_id dauerhaft
+6. Discovery: GET /v3/connections → vehicleId-Liste
+7. Fahrzeugdaten: GET /v3/vehicles/:id
+8. App-Token per client_credentials (automatisch erneuert)
+```
+
+Basiert auf dem offiziellen [Smartcar V3 Backend-Tutorial](https://smartcar.com/docs/getting-started/tutorials/backend).
+
+---
+
+## Redirect URI im Smartcar Dashboard
+
+Diese URI muss **exakt** im Smartcar Dashboard eingetragen sein:
+
+```
+http://127.0.0.1:52625/exchange
+```
+
+> **Dashboard** → deine App → **Redirect URIs** → hinzufügen
+
+---
+
+## Fehlerbehebung
+
+| Problem | Lösung |
+|---------|--------|
+| `No userId` im Log | Connect-Flow noch nicht durchgeführt |
+| `401 Unauthorized` | Client ID / Secret falsch, oder Redirect URI nicht eingetragen |
+| Port 52625 belegt | Anderen Prozess beenden; Port ist konfigurierbar (zukünftiges Feature) |
+| Fahrzeug nicht erkannt | Prüfe ob JLR InControl aktiv ist und das Fahrzeug kompatibel ist |
+
+---
+
+## Lizenz
+
+MIT © StefanPeetz

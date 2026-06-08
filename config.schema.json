@@ -15,36 +15,21 @@
         "title": "Smartcar Client ID",
         "type": "string",
         "required": true,
-        "description": "Your Smartcar V3 Client ID (starts with client_01…). Find it at dashboard.smartcar.com → API credentials."
+        "placeholder": "client_01…",
+        "description": "Deine Smartcar Client ID. Zu finden unter dashboard.smartcar.com → Configuration."
       },
       "clientSecret": {
         "title": "Smartcar Client Secret",
         "type": "string",
         "required": true,
-        "description": "Your Smartcar Client Secret."
-      },
-      "managementToken": {
-        "title": "Application Management Token",
-        "type": "string",
-        "required": true,
-        "description": "Find it at dashboard.smartcar.com → your app → Application Configuration → Application Management Token. Used to automatically resolve your userId."
-      },
-      "userId": {
-        "title": "Smartcar User ID (optional override)",
-        "type": "string",
-        "description": "Leave empty – the userId is resolved automatically via the Management Token. Only set this if you want to override."
+        "description": "Dein Smartcar Client Secret."
       },
       "pollIntervalSeconds": {
-        "title": "Poll Interval (seconds)",
+        "title": "Abfrageintervall (Sekunden)",
         "type": "integer",
         "default": 60,
         "minimum": 30,
-        "description": "How often to refresh vehicle data (minimum 30 s)."
-      },
-      "notifyWebhookUrl": {
-        "title": "Notification Webhook URL (optional)",
-        "type": "string",
-        "description": "Optional: POST webhook called when vehicle state changes."
+        "description": "Wie oft Fahrzeugdaten abgefragt werden (mindestens 30 s)."
       }
     }
   },
