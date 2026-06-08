@@ -3,14 +3,15 @@ import {
   PlatformConfig, Service, Characteristic,
 } from 'homebridge';
 import * as http from 'http';
+import * as path from 'path';
+import * as fs from 'fs';
 import { SmartcarClient } from './smartcar-client';
 import { SmartcarConfig, JlrVehicleSummary } from './types';
 import { JlrAccessory } from './accessory';
-import { startCallbackServer, CALLBACK_PORT, CALLBACK_PATH } from './connect-server';
+import { startCallbackServer, REDIRECT_URI } from './connect-server';
 
 const PLUGIN_NAME   = 'homebridge-jlr-smartcar';
 const PLATFORM_NAME = 'JlrSmartcarPlatform';
-const STORAGE_KEY   = 'smartcar_user_id';
 
 export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -18,7 +19,7 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   public readonly accessories: PlatformAccessory[] = [];
 
   private readonly cfg: SmartcarConfig;
-  private readonly client: SmartcarClient;
+  readonly client: SmartcarClient;
   private callbackServer?: http.Server;
 
   constructor(
@@ -30,7 +31,6 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     this.Characteristic = this.api.hap.Characteristic;
     this.cfg            = config as unknown as SmartcarConfig;
 
-    // Validate required fields
     if (!this.cfg.clientId || !this.cfg.clientSecret) {
       this.log.error(
         '[JLR InControl] ❌ clientId und clientSecret sind Pflichtfelder. ' +
@@ -38,8 +38,7 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
       );
     }
 
-    // Restore persisted userId (saved after first Connect)
-    const storedUserId = this.loadUserId();
+    const storedUserId  = this.loadUserId();
     const initialUserId = this.cfg.userId || storedUserId || undefined;
     if (initialUserId) {
       this.log.info('[JLR InControl] Gespeicherte userId geladen: %s', initialUserId);
@@ -53,12 +52,9 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     });
 
     this.log.info('[JLR InControl] Plattform initialisiert.');
-
     this.api.on('didFinishLaunching', () => this.onFinishLaunching());
     this.api.on('shutdown', () => this.callbackServer?.close());
   }
-
-  // ─── Homebridge lifecycle ────────────────────────────────────────────────
 
   configureAccessory(accessory: PlatformAccessory): void {
     this.accessories.push(accessory);
@@ -70,13 +66,12 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
         '[JLR InControl] Kein userId gefunden. ' +
         'Bitte verbinde dein Fahrzeug über das Homebridge UI (Plugin-Einstellungen → "Fahrzeug verbinden").',
       );
+      this.log.info('[JLR InControl] Redirect URI für Smartcar Dashboard: %s', REDIRECT_URI);
       await this.startConnectServer();
       return;
     }
     await this.discoverDevices();
   }
-
-  // ─── Smartcar Connect callback server ───────────────────────────────────
 
   async startConnectServer(): Promise<void> {
     if (this.callbackServer) return;
@@ -88,20 +83,17 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
         await this.discoverDevices();
       });
     } catch (err) {
-      this.log.error('[JLR InControl] Callback-Server konnte nicht gestartet werden: %s', (err as Error).message);
+      this.log.error('[JLR InControl] Callback-Server Fehler: %s', (err as Error).message);
     }
   }
 
   getConnectUrl(): string {
-    const redirectUri = `http://127.0.0.1:${CALLBACK_PORT}${CALLBACK_PATH}`;
-    return this.client.buildConnectUrl(redirectUri, 'live');
+    return this.client.buildConnectUrl(REDIRECT_URI, 'live');
   }
 
   isWaitingForConnect(): boolean {
     return !!this.callbackServer;
   }
-
-  // ─── Device discovery ────────────────────────────────────────────────────
 
   private async discoverDevices(): Promise<void> {
     try {
@@ -109,10 +101,7 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
       const vehicles = await this.client.getVehicles();
       this.log.info('[JLR InControl] %d Fahrzeug(e) gefunden', vehicles.length);
 
-      // Remove stale accessories
-      const activeUuids = new Set(vehicles.map(v =>
-        this.api.hap.uuid.generate(v.id),
-      ));
+      const activeUuids = new Set(vehicles.map(v => this.api.hap.uuid.generate(v.id)));
       this.accessories
         .filter(a => !activeUuids.has(a.UUID))
         .forEach(a => {
@@ -124,20 +113,21 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
         this.registerOrUpdateVehicle(vehicle);
       }
     } catch (err) {
-      this.log.error('[JLR InControl] Fahrzeug-Discovery fehlgeschlagen: %s', (err as Error).message);
+      this.log.error('[JLR InControl] Discovery fehlgeschlagen: %s', (err as Error).message);
     }
   }
 
   private registerOrUpdateVehicle(vehicle: JlrVehicleSummary): void {
-    const uuid      = this.api.hap.uuid.generate(vehicle.id);
-    const existing  = this.accessories.find(a => a.UUID === uuid);
-    const pollMs    = Math.max(30, this.cfg.pollIntervalSeconds ?? 60) * 1000;
+    const uuid     = this.api.hap.uuid.generate(vehicle.id);
+    const existing = this.accessories.find(a => a.UUID === uuid);
+    const pollMs   = Math.max(30, this.cfg.pollIntervalSeconds ?? 60) * 1000;
 
     if (existing) {
-      this.log.info('[JLR InControl] Fahrzeug bereits bekannt: %s', vehicle.nickname);
+      this.log.info('[JLR InControl] Fahrzeug bekannt: %s', vehicle.nickname);
+      existing.context.vehicle = vehicle;
       new JlrAccessory(this, existing, this.client, pollMs);
     } else {
-      this.log.info('[JLR InControl] Neues Fahrzeug registriert: %s', vehicle.nickname);
+      this.log.info('[JLR InControl] Neues Fahrzeug: %s', vehicle.nickname);
       const accessory = new this.api.platformAccessory(vehicle.nickname, uuid);
       accessory.context.vehicle = vehicle;
       new JlrAccessory(this, accessory, this.client, pollMs);
@@ -145,19 +135,17 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     }
   }
 
-  // ─── userId persistence ──────────────────────────────────────────────────
-
-  private userIdPath(): string {
-    // Store next to homebridge config
-    return require('path').join(
-      this.api.user?.storagePath?.() ?? process.cwd(),
+  private storagePath(): string {
+    return path.join(
+      (this.api.user as any)?.storagePath?.() ?? process.cwd(),
       '.smartcar_user_id',
     );
   }
 
-  private saveUserId(id: string): void {
+  saveUserId(id: string): void {
     try {
-      require('fs').writeFileSync(this.userIdPath(), id, 'utf8');
+      fs.writeFileSync(this.storagePath(), id, 'utf8');
+      this.log.info('[JLR InControl] userId gespeichert.');
     } catch (e) {
       this.log.warn('[JLR InControl] userId konnte nicht gespeichert werden: %s', (e as Error).message);
     }
@@ -165,7 +153,7 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
 
   private loadUserId(): string | undefined {
     try {
-      return require('fs').readFileSync(this.userIdPath(), 'utf8').trim() || undefined;
+      return fs.readFileSync(this.storagePath(), 'utf8').trim() || undefined;
     } catch {
       return undefined;
     }
