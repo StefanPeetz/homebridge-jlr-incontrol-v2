@@ -2,20 +2,20 @@
  * Minimal local HTTP server that acts as the Smartcar OAuth redirect URI.
  *
  * Flow:
- *   1. Plugin starts server on a random free port (or fixed port from config)
+ *   1. Plugin starts server on a fixed port (52625)
  *   2. User opens Smartcar Connect URL in browser
- *   3. After auth, Smartcar redirects to http://127.0.0.1:<port>/exchange?user_id=<uuid>
+ *   3. After auth, Smartcar redirects to http://127.0.0.1:52625/exchange?user_id=<uuid>
  *   4. Server captures user_id, calls onUserId callback, returns a success page
  *   5. Server shuts itself down (one-time use)
  *
- * The redirect URI registered in the Smartcar Dashboard must match exactly:
- *   http://127.0.0.1:<port>/exchange
+ * The redirect URI registered in the Smartcar Dashboard must match EXACTLY:
+ *   http://127.0.0.1:52625/exchange
  */
 import * as http from 'http';
 import { Logger } from 'homebridge';
 
 export const CALLBACK_PATH = '/exchange';
-export const CALLBACK_PORT = 52625; // fixed port; register this in Smartcar Dashboard
+export const CALLBACK_PORT = 52625;
 
 export function startCallbackServer(
   log: Logger,
@@ -24,6 +24,10 @@ export function startCallbackServer(
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       if (!req.url) return;
+
+      // ── DEBUG: log the full raw URL so we can see exactly what Smartcar sends ──
+      log.info('[Smartcar Connect] Eingehende Anfrage: %s', req.url);
+
       const url = new URL(req.url, `http://127.0.0.1:${CALLBACK_PORT}`);
 
       if (url.pathname !== CALLBACK_PATH) {
@@ -32,20 +36,30 @@ export function startCallbackServer(
         return;
       }
 
+      // Log all query parameters for debugging
+      const allParams: string[] = [];
+      url.searchParams.forEach((v, k) => allParams.push(`${k}=${v}`));
+      log.info('[Smartcar Connect] Query-Parameter: %s', allParams.length ? allParams.join(', ') : '(keine)');
+
       const userId = url.searchParams.get('user_id');
       const error  = url.searchParams.get('error');
 
       if (error) {
-        log.error('[Smartcar Connect] Error from Connect: %s — %s', error, url.searchParams.get('error_description') ?? '');
+        log.error('[Smartcar Connect] Fehler von Connect: %s — %s',
+          error, url.searchParams.get('error_description') ?? '');
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(successPage('❌ Connect fehlgeschlagen', `Smartcar meldete: ${error}`, false));
+        res.end(htmlPage('❌ Connect fehlgeschlagen', `Smartcar meldete: ${error}`, false));
         server.close();
         return;
       }
 
       if (!userId) {
+        const hint = allParams.length
+          ? `Empfangene Parameter: ${allParams.join(', ')}`
+          : 'Keine Query-Parameter empfangen. Prüfe ob die Redirect URI im Smartcar Dashboard exakt lautet: http://127.0.0.1:52625/exchange';
+        log.error('[Smartcar Connect] Keine user_id empfangen. %s', hint);
         res.writeHead(400, { 'Content-Type': 'text/html' });
-        res.end(successPage('❌ Keine user_id', 'Kein user_id-Parameter in der Redirect-URL gefunden.', false));
+        res.end(htmlPage('❌ Keine user_id', hint, false));
         return;
       }
 
@@ -53,12 +67,11 @@ export function startCallbackServer(
       onUserId(userId);
 
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(successPage(
+      res.end(htmlPage(
         '✅ Fahrzeug verbunden!',
-        'Dein Fahrzeug wurde erfolgreich mit Homebridge verbunden. Du kannst dieses Fenster schließen und Homebridge neu starten.',
+        'Dein Fahrzeug wurde erfolgreich mit Homebridge verbunden. Du kannst dieses Fenster schließen.',
         true,
       ));
-      // Give browser time to receive the page before shutting down
       setTimeout(() => server.close(), 2000);
     });
 
@@ -71,7 +84,7 @@ export function startCallbackServer(
   });
 }
 
-function successPage(title: string, message: string, success: boolean): string {
+function htmlPage(title: string, message: string, success: boolean): string {
   const color = success ? '#01696f' : '#a12c7b';
   return `<!DOCTYPE html>
 <html lang="de">
@@ -81,9 +94,9 @@ function successPage(title: string, message: string, success: boolean): string {
   <title>${title}</title>
   <style>
     body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f7f6f2; }
-    .card { background: #fff; border-radius: 12px; padding: 2rem 2.5rem; max-width: 420px; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+    .card { background: #fff; border-radius: 12px; padding: 2rem 2.5rem; max-width: 480px; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
     h1 { color: ${color}; font-size: 1.5rem; margin-bottom: .75rem; }
-    p  { color: #555; line-height: 1.6; }
+    p  { color: #555; line-height: 1.6; font-size: .9rem; word-break: break-all; }
   </style>
 </head>
 <body>
