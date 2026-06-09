@@ -53,10 +53,7 @@ export class SmartcarClient {
 
   private async fetchAppToken(): Promise<string> {
     this.log.info('[Smartcar] App-Token wird geholt (clientId: %s...)', this.clientId.substring(0, 12));
-
-    // Smartcar IAM requires HTTP Basic Auth: base64(clientId:clientSecret)
     const basicAuth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
-
     try {
       const resp = await this.http.post(
         SMARTCAR_IAM_URL,
@@ -76,8 +73,7 @@ export class SmartcarClient {
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         this.log.error('[Smartcar] Token-Fehler %s: %s',
-          err.response?.status,
-          JSON.stringify(err.response?.data ?? err.message));
+          err.response?.status, JSON.stringify(err.response?.data ?? err.message));
       }
       throw err;
     }
@@ -98,16 +94,21 @@ export class SmartcarClient {
   }
 
   private async authHeaders(): Promise<Record<string, string>> {
+    const token = await this.getAppToken();
+    this.log.debug('[Smartcar] sc-user-id: %s', this.userId);
     return {
-      'Authorization': `Bearer ${await this.getAppToken()}`,
+      'Authorization': `Bearer ${token}`,
       'sc-user-id':    this.userId!,
     };
   }
 
-  private async get<T>(path: string): Promise<T> {
+  private async get<T>(path: string, params?: Record<string, string>): Promise<T> {
     try {
-      return (await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`,
-        { headers: await this.authHeaders() })).data;
+      const resp = await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, {
+        headers: await this.authHeaders(),
+        params,
+      });
+      return resp.data;
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         this.log.error('[Smartcar] GET %s → %s: %s', path,
@@ -132,7 +133,11 @@ export class SmartcarClient {
   }
 
   async getVehicles(): Promise<JlrVehicleSummary[]> {
-    const connData = await this.get<{ connections: { vehicleId: string }[] }>('/connections');
+    // /connections returns vehicles connected to this app by the user
+    // sc-user-id header is set in authHeaders()
+    const connData = await this.get<{ connections: Array<{ vehicleId: string }> }>('/connections');
+    this.log.info('[Smartcar] /connections raw: %s', JSON.stringify(connData));
+
     const ids = (connData.connections ?? []).map(c => c.vehicleId);
     this.log.info('[Smartcar] %d Fahrzeug(e) via /connections', ids.length);
 
