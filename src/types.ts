@@ -1,6 +1,7 @@
 export interface SmartcarConfig {
   name: string;
-  clientId: string;
+  applicationId: string;   // UUID — used for Smartcar Connect OAuth URL
+  clientId: string;        // client_01… — used for client_credentials API token
   clientSecret: string;
   userId?: string;
   pollIntervalSeconds?: number;

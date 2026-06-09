@@ -11,23 +11,31 @@
         "default": "JLR Smartcar",
         "required": true
       },
+      "applicationId": {
+        "title": "Smartcar Application ID",
+        "type": "string",
+        "required": true,
+        "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "description": "Die Application ID aus dem Smartcar Dashboard (UUID-Format). Zu finden unter dashboard.smartcar.com → Configuration → Application details → Application ID. Wird für den Connect-Flow (Fahrzeug verbinden) benötigt."
+      },
       "clientId": {
-        "title": "Smartcar Client ID",
+        "title": "Smartcar API Client ID",
         "type": "string",
         "required": true,
         "placeholder": "client_01…",
-        "description": "Deine Smartcar Client ID. Zu finden unter dashboard.smartcar.com → Configuration."
+        "description": "Die API Client ID aus dem Smartcar Dashboard. Zu finden unter dashboard.smartcar.com → Configuration → API credentials → Client ID. Wird für den API-Zugriff (client_credentials) benötigt."
       },
       "clientSecret": {
         "title": "Smartcar Client Secret",
         "type": "string",
         "required": true,
-        "description": "Dein Smartcar Client Secret."
+        "placeholder": "sec_01…",
+        "description": "Das Client Secret aus dem Smartcar Dashboard → API credentials."
       },
       "userId": {
         "title": "Smartcar User ID",
         "type": "string",
-        "description": "Einmalig nach dem Smartcar Connect-Flow eintragen. Anleitung: Homebridge-Log lesen, Connect-URL im Browser öffnen, nach dem Login den Wert von user_id= aus der Adressleiste kopieren und hier einfügen.",
+        "description": "Einmalig nach dem Connect-Flow eintragen. Anleitung: Homebridge-Log lesen → Connect-URL im Browser öffnen → JLR-Login → Adressleiste zeigt ?code=...&user_id=XXXX → user_id kopieren und hier einfügen.",
         "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
       },
       "pollIntervalSeconds": {

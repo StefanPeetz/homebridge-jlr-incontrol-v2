@@ -27,17 +27,18 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
     this.Characteristic = this.api.hap.Characteristic;
     this.cfg            = config as unknown as SmartcarConfig;
 
-    if (!this.cfg.clientId || !this.cfg.clientSecret) {
+    if (!this.cfg.applicationId || !this.cfg.clientId || !this.cfg.clientSecret) {
       this.log.error(
-        '[JLR InControl] ❌ clientId und clientSecret sind Pflichtfelder.',
+        '[JLR InControl] ❌ applicationId, clientId und clientSecret sind Pflichtfelder.',
       );
     }
 
     this.client = new SmartcarClient({
-      clientId:     this.cfg.clientId,
-      clientSecret: this.cfg.clientSecret,
-      userId:       this.cfg.userId?.trim() || undefined,
-      log:          this.log,
+      applicationId: this.cfg.applicationId,
+      clientId:      this.cfg.clientId,
+      clientSecret:  this.cfg.clientSecret,
+      userId:        this.cfg.userId?.trim() || undefined,
+      log:           this.log,
     });
 
     this.log.info('[JLR InControl] Plattform initialisiert. userId: %s',

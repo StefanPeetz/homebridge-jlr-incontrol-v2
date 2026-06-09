@@ -11,22 +11,25 @@ export class SmartcarClient {
   private http: AxiosInstance;
   private session: SmartcarSession = {};
 
-  readonly clientId: string;
+  readonly applicationId: string;   // UUID — for Connect OAuth URL
+  readonly clientId: string;        // client_01… — for API token
   private readonly clientSecret: string;
   private readonly log: Logger;
   private userId?: string;
 
   constructor(params: {
+    applicationId: string;
     clientId: string;
     clientSecret: string;
     userId?: string;
     log: Logger;
   }) {
-    this.clientId     = params.clientId;
-    this.clientSecret = params.clientSecret;
-    this.userId       = params.userId;
-    this.log          = params.log;
-    this.http         = axios.create({ timeout: 30_000 });
+    this.applicationId = params.applicationId;
+    this.clientId      = params.clientId;
+    this.clientSecret  = params.clientSecret;
+    this.userId        = params.userId;
+    this.log           = params.log;
+    this.http          = axios.create({ timeout: 30_000 });
   }
 
   hasUserId(): boolean { return !!this.userId; }
@@ -34,10 +37,9 @@ export class SmartcarClient {
   getUserId(): string | undefined { return this.userId; }
 
   /**
-   * Builds the Smartcar Connect URL.
-   * response_type=code is REQUIRED by Smartcar.
-   * After login, Smartcar redirects to redirectUri with ?code=...&user_id=...
-   * The user_id can be read directly from the redirect URL.
+   * Connect URL uses applicationId (UUID), NOT clientId (client_01…)
+   * response_type=code is required by Smartcar.
+   * After login: redirect to ?code=...&user_id=<uuid>
    */
   buildConnectUrl(redirectUri: string, mode: 'live' | 'simulated' = 'live'): string {
     const scopes = [
@@ -52,7 +54,7 @@ export class SmartcarClient {
 
     const params = new URLSearchParams({
       response_type: 'code',
-      client_id:     this.clientId,
+      client_id:     this.applicationId,   // <-- UUID here
       redirect_uri:  redirectUri,
       scope:         scopes,
       mode,
@@ -66,7 +68,7 @@ export class SmartcarClient {
       SMARTCAR_IAM_URL,
       new URLSearchParams({
         grant_type:    'client_credentials',
-        client_id:     this.clientId,
+        client_id:     this.clientId,      // <-- client_01… here
         client_secret: this.clientSecret,
       }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
