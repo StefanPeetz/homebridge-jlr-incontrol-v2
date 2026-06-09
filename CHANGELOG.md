@@ -1,19 +1,25 @@
 # Changelog
 
-## [2.2.5] — 2026-06-09
+## [2.2.6] — 2026-06-09
 
 ### Fixed
-- `/connections` Response-Format korrigiert. Smartcar V3 gibt `data: [...]` zurück,
-  nicht `connections: [...]`. VehicleId steckt in
-  `data[].relationships.vehicle.data.id`.
-- Berechtigungen werden pro Fahrzeug geloggt.
-- Warnung wenn Fahrzeug nur mit unvollständigen Berechtigungen verbunden ist.
+- Smartcar V3 verwendet `/signals` statt REST-Einzel-Endpunkte.
+  `/charge`, `/location`, `/odometer`, `/security` existieren in V3 nicht
+  mehr und gaben `INVALID_PATH 404` zurück.
+- Alle Fahrzeugdaten werden jetzt per `POST /vehicles/:id/signals` in
+  einem einzigen Request abgefragt.
+- Lock/Unlock verwendet jetzt `POST /vehicles/:id/commands` mit `LOCK_DOORS`
+  / `UNLOCK_DOORS` statt dem alten `/security` Pfad.
+- Signal-Namen auf V3 Schema angepasst (z.B. `TractionBattery.StateOfCharge
+  .Displayed`, `InternalCombustionEngine.FuelLevel`, `Closure.IsLocked`).
 
-### Hinweis: Fahrzeug neu verbinden
-Das Fahrzeug wurde bisher nur mit `read_vehicle_info` verbunden — alle anderen
-Berechtigungen fehlen ("No permissions" im Dashboard).
-Bitte das Fahrzeug im Smartcar Dashboard disconnecten und dann den Connect-Flow
-erneut durchführen, damit alle Scopes erteilt werden.
+### Hinweis
+Die meisten Signals benötigen einen Smartcar-Plan mit erweiterten
+Berechtigungen. Mit dem Free-Plan steht nur `read_vehicle_info` zur
+Veefügung, d.h. Fahrzeugdaten werden als `undefined` zurückgegeben.
+
+## [2.2.5] — 2026-06-09
+- /connections Response-Format korrigiert.
 
 ## [2.2.4] — 2026-06-09
 - Volles /connections Response geloggt.

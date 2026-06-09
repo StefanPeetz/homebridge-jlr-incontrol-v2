@@ -7,23 +7,27 @@ const SMARTCAR_API_BASE = 'https://vehicle.api.smartcar.com/v3';
 const CONNECT_BASE      = 'https://connect.smartcar.com';
 const TOKEN_TTL_BUFFER  = 5 * 60 * 1000;
 
-// V3 /connections response shape
 interface V3Connection {
   id: string;
-  type: string;
   attributes: {
     permissions: string[];
     vehicle: { make: string; model: string; year: number; mode: string; powertrainType: string };
   };
-  relationships: {
-    vehicle: { data: { id: string; type: string } };
-    user:    { data: { id: string; type: string } };
-  };
+  relationships: { vehicle: { data: { id: string } } };
 }
 interface V3ConnectionsResponse {
   data: V3Connection[];
   meta: { totalCount: number };
 }
+
+// V3 Signals response: data is an object keyed by signal name
+interface SignalValue {
+  value: unknown;
+  unit?: string;
+  timestamp?: string;
+  status?: string;
+}
+type SignalsResponse = { data: Record<string, SignalValue> };
 
 export class SmartcarClient {
   private http: AxiosInstance;
@@ -84,9 +88,8 @@ export class SmartcarClient {
       this.log.info('[Smartcar] App-Token gültig für %ds', expiresIn);
       return resp.data.access_token as string;
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
+      if (axios.isAxiosError(err))
         this.log.error('[Smartcar] Token-Fehler %s: %s', err.response?.status, JSON.stringify(err.response?.data ?? err.message));
-      }
       throw err;
     }
   }
@@ -128,13 +131,26 @@ export class SmartcarClient {
     }
   }
 
+  // Request multiple signals in one call via POST /vehicles/:id/signals
+  private async getSignals(vehicleId: string, signals: string[]): Promise<Record<string, SignalValue>> {
+    try {
+      const resp = await this.post<SignalsResponse>(`/vehicles/${vehicleId}/signals`, { signals });
+      this.log.debug('[Smartcar] signals raw: %s', JSON.stringify(resp.data));
+      return resp.data ?? {};
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err))
+        this.log.warn('[Smartcar] signals für %s nicht verfügbar: %s', vehicleId, err.response?.status);
+      return {};
+    }
+  }
+
   async getVehicles(): Promise<JlrVehicleSummary[]> {
     const resp = await this.get<V3ConnectionsResponse>('/connections');
     this.log.info('[Smartcar] /connections: %d Verbindung(en)', resp.meta?.totalCount ?? resp.data?.length ?? 0);
 
     const connections = resp.data ?? [];
     if (connections.length === 0) {
-      this.log.warn('[Smartcar] Keine Fahrzeuge gefunden. Bitte Fahrzeug erneut verbinden mit allen Berechtigungen.');
+      this.log.warn('[Smartcar] Keine Fahrzeuge. Bitte Connect-Flow erneut durchführen.');
       return [];
     }
 
@@ -145,52 +161,87 @@ export class SmartcarClient {
       this.log.info('[Smartcar] Fahrzeug %s: %d %s %s | Berechtigungen: %s',
         vehicleId, attrs.year, attrs.make, attrs.model, perms.join(', '));
 
-      // Try to get VIN if permission available
+      // Try to get VIN via signals
       let vin = vehicleId;
-      if (perms.includes('read_vin')) {
-        try {
-          const vinResp = await this.get<{ vin: string }>(`/vehicles/${vehicleId}/vin`);
-          vin = vinResp.vin;
-        } catch { this.log.debug('[Smartcar] VIN nicht abrufbar für %s', vehicleId); }
-      }
+      try {
+        const sigVin = await this.getSignals(vehicleId, ['VehicleIdentification.Vin']);
+        if (sigVin['VehicleIdentification.Vin']?.value)
+          vin = sigVin['VehicleIdentification.Vin'].value as string;
+      } catch { /* VIN nicht verfügbar */ }
 
-      return {
-        id:       vehicleId,
-        vin,
-        nickname: `${attrs.year} ${attrs.make} ${attrs.model}`,
-        model:    attrs.model,
-      } as JlrVehicleSummary;
+      return { id: vehicleId, vin, nickname: `${attrs.year} ${attrs.make} ${attrs.model}`, model: attrs.model } as JlrVehicleSummary;
     }));
   }
 
   async getVehicleState(vehicleId: string, vin: string): Promise<JlrVehicleState> {
-    const [chargeRes, locationRes, odometerRes] = await Promise.allSettled([
-      this.get<{ state: string; battery?: { percentRemaining: number; range: { value: number; unit: string } }; fuel?: { percentRemaining: number; range: { value: number; unit: string } } }>(`/vehicles/${vehicleId}/charge`),
-      this.get<{ latitude: number; longitude: number; speed?: { value: number } }>(`/vehicles/${vehicleId}/location`),
-      this.get<{ distance: { value: number; unit: string } }>(`/vehicles/${vehicleId}/odometer`),
+    // Request all signals we care about in a single call
+    const signals = await this.getSignals(vehicleId, [
+      'Charge.IsCharging',
+      'TractionBattery.StateOfCharge.Displayed',
+      'TractionBattery.Range',
+      'InternalCombustionEngine.FuelLevel',
+      'InternalCombustionEngine.FuelRange',
+      'Location.Latitude',
+      'Location.Longitude',
+      'Motion.Speed',
+      'Odometer.Distance',
+      'Closure.IsLocked',
     ]);
 
-    let batteryLevel: number | undefined, charging: boolean | undefined, fuelLevelPercent: number | undefined, rangeKm: number | undefined;
-    if (chargeRes.status === 'fulfilled') {
-      const c = chargeRes.value;
-      charging = c.state === 'CHARGING';
-      if (c.battery) { batteryLevel = Math.round(c.battery.percentRemaining * 100); rangeKm = c.battery.range.unit === 'miles' ? Math.round(c.battery.range.value * 1.60934) : Math.round(c.battery.range.value); }
-      if (c.fuel)    { fuelLevelPercent = Math.round(c.fuel.percentRemaining * 100); }
-    }
+    this.log.debug('[Smartcar] signals empfangen: %s', Object.keys(signals).join(', ') || 'keine');
 
-    let latitude: number | undefined, longitude: number | undefined, isMoving: boolean | undefined;
-    if (locationRes.status === 'fulfilled') { ({ latitude, longitude } = locationRes.value); isMoving = (locationRes.value.speed?.value ?? 0) > 2; }
+    const num = (key: string): number | undefined => {
+      const v = signals[key]?.value;
+      return v !== undefined && v !== null ? Number(v) : undefined;
+    };
+    const bool = (key: string): boolean | undefined => {
+      const v = signals[key]?.value;
+      return v !== undefined && v !== null ? Boolean(v) : undefined;
+    };
 
-    let odometerKm: number | undefined;
-    if (odometerRes.status === 'fulfilled') { const d = odometerRes.value.distance; odometerKm = d.unit === 'miles' ? Math.round(d.value * 1.60934) : Math.round(d.value); }
+    // Battery
+    const batteryRaw = num('TractionBattery.StateOfCharge.Displayed');
+    const batteryLevel = batteryRaw !== undefined ? Math.round(batteryRaw) : undefined;
 
-    let isLocked = false;
-    try { isLocked = (await this.get<{ isLocked: boolean }>(`/vehicles/${vehicleId}/security`)).isLocked; }
-    catch { this.log.debug('[Smartcar] security n/a für %s', vehicleId); }
+    // Range (V3 signals return km by default)
+    const rangeRaw = num('TractionBattery.Range') ?? num('InternalCombustionEngine.FuelRange');
+    const rangeKm  = rangeRaw !== undefined ? Math.round(rangeRaw) : undefined;
 
-    return { vin, isLocked, batteryLevel, charging, lowBattery: batteryLevel !== undefined ? batteryLevel < 20 : undefined, fuelLevelPercent, rangeKm, odometerKm, latitude, longitude, isMoving, lastUpdated: new Date().toISOString() };
+    // Fuel (ICE)
+    const fuelRaw = num('InternalCombustionEngine.FuelLevel');
+    const fuelLevelPercent = fuelRaw !== undefined ? Math.round(fuelRaw) : undefined;
+
+    // Odometer
+    const odomRaw = num('Odometer.Distance');
+    const odometerKm = odomRaw !== undefined ? Math.round(odomRaw) : undefined;
+
+    // Location
+    const latitude  = num('Location.Latitude');
+    const longitude = num('Location.Longitude');
+    const speed     = num('Motion.Speed');
+    const isMoving  = speed !== undefined ? speed > 2 : undefined;
+
+    // Charging
+    const charging = bool('Charge.IsCharging');
+
+    // Lock status
+    const isLockedRaw = bool('Closure.IsLocked');
+    const isLocked = isLockedRaw ?? false;
+
+    return {
+      vin, isLocked, batteryLevel, charging,
+      lowBattery: batteryLevel !== undefined ? batteryLevel < 20 : undefined,
+      fuelLevelPercent, rangeKm, odometerKm,
+      latitude, longitude, isMoving,
+      lastUpdated: new Date().toISOString(),
+    };
   }
 
-  async lock(id: string):   Promise<void> { await this.post(`/vehicles/${id}/security`, { action: 'LOCK' }); }
-  async unlock(id: string): Promise<void> { await this.post(`/vehicles/${id}/security`, { action: 'UNLOCK' }); }
+  // V3 commands via POST /vehicles/:id/commands
+  async lock(id: string): Promise<void> {
+    await this.post(`/vehicles/${id}/commands`, { type: 'LOCK_DOORS' });
+  }
+  async unlock(id: string): Promise<void> {
+    await this.post(`/vehicles/${id}/commands`, { type: 'UNLOCK_DOORS' });
+  }
 }
