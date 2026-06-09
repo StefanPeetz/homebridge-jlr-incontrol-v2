@@ -2,7 +2,6 @@
   "pluginAlias": "JlrSmartcarPlatform",
   "pluginType": "platform",
   "singular": true,
-  "customUi": true,
   "schema": {
     "type": "object",
     "properties": {
