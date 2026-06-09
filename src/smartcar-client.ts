@@ -7,6 +7,24 @@ const SMARTCAR_API_BASE = 'https://vehicle.api.smartcar.com/v3';
 const CONNECT_BASE      = 'https://connect.smartcar.com';
 const TOKEN_TTL_BUFFER  = 5 * 60 * 1000;
 
+// V3 /connections response shape
+interface V3Connection {
+  id: string;
+  type: string;
+  attributes: {
+    permissions: string[];
+    vehicle: { make: string; model: string; year: number; mode: string; powertrainType: string };
+  };
+  relationships: {
+    vehicle: { data: { id: string; type: string } };
+    user:    { data: { id: string; type: string } };
+  };
+}
+interface V3ConnectionsResponse {
+  data: V3Connection[];
+  meta: { totalCount: number };
+}
+
 export class SmartcarClient {
   private http: AxiosInstance;
   private session: SmartcarSession = {};
@@ -58,12 +76,7 @@ export class SmartcarClient {
       const resp = await this.http.post(
         SMARTCAR_IAM_URL,
         new URLSearchParams({ grant_type: 'client_credentials' }),
-        {
-          headers: {
-            'Content-Type':  'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${basicAuth}`,
-          },
-        },
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${basicAuth}` } },
       );
       const expiresIn: number = resp.data.expires_in ?? 3600;
       this.session.appToken          = resp.data.access_token;
@@ -72,19 +85,15 @@ export class SmartcarClient {
       return resp.data.access_token as string;
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        this.log.error('[Smartcar] Token-Fehler %s: %s',
-          err.response?.status, JSON.stringify(err.response?.data ?? err.message));
+        this.log.error('[Smartcar] Token-Fehler %s: %s', err.response?.status, JSON.stringify(err.response?.data ?? err.message));
       }
       throw err;
     }
   }
 
   async getAppToken(): Promise<string> {
-    if (
-      this.session.appToken &&
-      this.session.appTokenExpiresAt &&
-      this.session.appTokenExpiresAt - Date.now() > TOKEN_TTL_BUFFER
-    ) return this.session.appToken;
+    if (this.session.appToken && this.session.appTokenExpiresAt && this.session.appTokenExpiresAt - Date.now() > TOKEN_TTL_BUFFER)
+      return this.session.appToken;
     return this.fetchAppToken();
   }
 
@@ -94,26 +103,15 @@ export class SmartcarClient {
   }
 
   private async authHeaders(): Promise<Record<string, string>> {
-    const token = await this.getAppToken();
-    this.log.debug('[Smartcar] sc-user-id: %s', this.userId);
-    return {
-      'Authorization': `Bearer ${token}`,
-      'sc-user-id':    this.userId!,
-    };
+    return { 'Authorization': `Bearer ${await this.getAppToken()}`, 'sc-user-id': this.userId! };
   }
 
-  private async get<T>(path: string, params?: Record<string, string>): Promise<T> {
+  private async get<T>(path: string): Promise<T> {
     try {
-      const resp = await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, {
-        headers: await this.authHeaders(),
-        params,
-      });
-      return resp.data;
+      return (await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, { headers: await this.authHeaders() })).data;
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        this.log.error('[Smartcar] GET %s → %s: %s', path,
-          err.response?.status, JSON.stringify(err.response?.data ?? err.message));
-      }
+      if (axios.isAxiosError(err))
+        this.log.error('[Smartcar] GET %s → %s: %s', path, err.response?.status, JSON.stringify(err.response?.data ?? err.message));
       throw err;
     }
   }
@@ -124,31 +122,44 @@ export class SmartcarClient {
         headers: { ...await this.authHeaders(), 'Content-Type': 'application/json' },
       })).data;
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        this.log.error('[Smartcar] POST %s → %s: %s', path,
-          err.response?.status, JSON.stringify(err.response?.data ?? err.message));
-      }
+      if (axios.isAxiosError(err))
+        this.log.error('[Smartcar] POST %s → %s: %s', path, err.response?.status, JSON.stringify(err.response?.data ?? err.message));
       throw err;
     }
   }
 
   async getVehicles(): Promise<JlrVehicleSummary[]> {
-    // /connections returns vehicles connected to this app by the user
-    // sc-user-id header is set in authHeaders()
-    const connData = await this.get<{ connections: Array<{ vehicleId: string }> }>('/connections');
-    this.log.info('[Smartcar] /connections raw: %s', JSON.stringify(connData));
+    const resp = await this.get<V3ConnectionsResponse>('/connections');
+    this.log.info('[Smartcar] /connections: %d Verbindung(en)', resp.meta?.totalCount ?? resp.data?.length ?? 0);
 
-    const ids = (connData.connections ?? []).map(c => c.vehicleId);
-    this.log.info('[Smartcar] %d Fahrzeug(e) via /connections', ids.length);
+    const connections = resp.data ?? [];
+    if (connections.length === 0) {
+      this.log.warn('[Smartcar] Keine Fahrzeuge gefunden. Bitte Fahrzeug erneut verbinden mit allen Berechtigungen.');
+      return [];
+    }
 
-    return Promise.all(ids.map(async (id) => {
-      try {
-        const info = await this.get<{ make: string; model: string; year: number }>(`/vehicles/${id}`);
-        const vin  = await this.get<{ vin: string }>(`/vehicles/${id}/vin`);
-        return { id, vin: vin.vin, nickname: `${info.year} ${info.make} ${info.model}`, model: info.model } as JlrVehicleSummary;
-      } catch {
-        return { id, vin: id, nickname: id } as JlrVehicleSummary;
+    return Promise.all(connections.map(async (conn) => {
+      const vehicleId = conn.relationships.vehicle.data.id;
+      const attrs     = conn.attributes.vehicle;
+      const perms     = conn.attributes.permissions;
+      this.log.info('[Smartcar] Fahrzeug %s: %d %s %s | Berechtigungen: %s',
+        vehicleId, attrs.year, attrs.make, attrs.model, perms.join(', '));
+
+      // Try to get VIN if permission available
+      let vin = vehicleId;
+      if (perms.includes('read_vin')) {
+        try {
+          const vinResp = await this.get<{ vin: string }>(`/vehicles/${vehicleId}/vin`);
+          vin = vinResp.vin;
+        } catch { this.log.debug('[Smartcar] VIN nicht abrufbar für %s', vehicleId); }
       }
+
+      return {
+        id:       vehicleId,
+        vin,
+        nickname: `${attrs.year} ${attrs.make} ${attrs.model}`,
+        model:    attrs.model,
+      } as JlrVehicleSummary;
     }));
   }
 
@@ -159,46 +170,25 @@ export class SmartcarClient {
       this.get<{ distance: { value: number; unit: string } }>(`/vehicles/${vehicleId}/odometer`),
     ]);
 
-    let batteryLevel: number | undefined, charging: boolean | undefined,
-        fuelLevelPercent: number | undefined, rangeKm: number | undefined;
+    let batteryLevel: number | undefined, charging: boolean | undefined, fuelLevelPercent: number | undefined, rangeKm: number | undefined;
     if (chargeRes.status === 'fulfilled') {
       const c = chargeRes.value;
       charging = c.state === 'CHARGING';
-      if (c.battery) {
-        batteryLevel = Math.round(c.battery.percentRemaining * 100);
-        rangeKm = c.battery.range.unit === 'miles'
-          ? Math.round(c.battery.range.value * 1.60934)
-          : Math.round(c.battery.range.value);
-      }
-      if (c.fuel) { fuelLevelPercent = Math.round(c.fuel.percentRemaining * 100); }
+      if (c.battery) { batteryLevel = Math.round(c.battery.percentRemaining * 100); rangeKm = c.battery.range.unit === 'miles' ? Math.round(c.battery.range.value * 1.60934) : Math.round(c.battery.range.value); }
+      if (c.fuel)    { fuelLevelPercent = Math.round(c.fuel.percentRemaining * 100); }
     }
 
     let latitude: number | undefined, longitude: number | undefined, isMoving: boolean | undefined;
-    if (locationRes.status === 'fulfilled') {
-      ({ latitude, longitude } = locationRes.value);
-      isMoving = (locationRes.value.speed?.value ?? 0) > 2;
-    }
+    if (locationRes.status === 'fulfilled') { ({ latitude, longitude } = locationRes.value); isMoving = (locationRes.value.speed?.value ?? 0) > 2; }
 
     let odometerKm: number | undefined;
-    if (odometerRes.status === 'fulfilled') {
-      const d = odometerRes.value.distance;
-      odometerKm = d.unit === 'miles' ? Math.round(d.value * 1.60934) : Math.round(d.value);
-    }
+    if (odometerRes.status === 'fulfilled') { const d = odometerRes.value.distance; odometerKm = d.unit === 'miles' ? Math.round(d.value * 1.60934) : Math.round(d.value); }
 
     let isLocked = false;
-    try {
-      isLocked = (await this.get<{ isLocked: boolean }>(`/vehicles/${vehicleId}/security`)).isLocked;
-    } catch {
-      this.log.debug('[Smartcar] security n/a für %s', vehicleId);
-    }
+    try { isLocked = (await this.get<{ isLocked: boolean }>(`/vehicles/${vehicleId}/security`)).isLocked; }
+    catch { this.log.debug('[Smartcar] security n/a für %s', vehicleId); }
 
-    return {
-      vin, isLocked, batteryLevel, charging,
-      lowBattery: batteryLevel !== undefined ? batteryLevel < 20 : undefined,
-      fuelLevelPercent, rangeKm, odometerKm,
-      latitude, longitude, isMoving,
-      lastUpdated: new Date().toISOString(),
-    };
+    return { vin, isLocked, batteryLevel, charging, lowBattery: batteryLevel !== undefined ? batteryLevel < 20 : undefined, fuelLevelPercent, rangeKm, odometerKm, latitude, longitude, isMoving, lastUpdated: new Date().toISOString() };
   }
 
   async lock(id: string):   Promise<void> { await this.post(`/vehicles/${id}/security`, { action: 'LOCK' }); }

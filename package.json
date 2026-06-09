@@ -1,13 +1,9 @@
 {
   "name": "homebridge-jlr-smartcar",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "description": "Homebridge plugin for Jaguar Land Rover via Smartcar API V3",
   "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
-    "prepublishOnly": "npm run build"
-  },
+  "scripts": { "build": "tsc", "watch": "tsc --watch", "prepublishOnly": "npm run build" },
   "keywords": ["homebridge-plugin", "jaguar", "landrover", "jlr", "incontrol", "smartcar"],
   "author": "StefanPeetz",
   "license": "MIT",
