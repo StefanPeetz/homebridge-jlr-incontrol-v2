@@ -1,9 +1,8 @@
 export interface SmartcarConfig {
-  platform: string;
   name: string;
   clientId: string;
   clientSecret: string;
-  userId?: string;            // persisted after first Connect; not entered manually
+  userId?: string;
   pollIntervalSeconds?: number;
 }
 

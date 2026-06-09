@@ -24,6 +24,12 @@
         "required": true,
         "description": "Dein Smartcar Client Secret."
       },
+      "userId": {
+        "title": "Smartcar User ID",
+        "type": "string",
+        "description": "Einmalig nach dem Smartcar Connect-Flow eintragen. Anleitung: Homebridge-Log lesen, Connect-URL im Browser öffnen, nach dem Login den Wert von user_id= aus der Adressleiste kopieren und hier einfügen.",
+        "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      },
       "pollIntervalSeconds": {
         "title": "Abfrageintervall (Sekunden)",
         "type": "integer",

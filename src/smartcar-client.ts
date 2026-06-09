@@ -29,21 +29,13 @@ export class SmartcarClient {
     this.http         = axios.create({ timeout: 30_000 });
   }
 
-  // ─── userId ────────────────────────────────────────────────────────────
   hasUserId(): boolean { return !!this.userId; }
   setUserId(id: string | undefined): void { this.userId = id; }
   getUserId(): string | undefined { return this.userId; }
 
-  // ─── Connect URL ───────────────────────────────────────────────────
-
   /**
    * Builds the Smartcar Connect URL.
-   *
-   * IMPORTANT: Do NOT set response_type=code here.
-   * The standard Smartcar Connect flow (without response_type) redirects back
-   * with ?user_id=<uuid> directly — no token exchange needed.
-   * Setting response_type=code triggers the OAuth Authorization Code flow
-   * which returns ?code=... instead and requires a separate token exchange.
+   * After login Smartcar redirects to redirectUri with ?user_id=<uuid>
    */
   buildConnectUrl(redirectUri: string, mode: 'live' | 'simulated' = 'live'): string {
     const scopes = [
@@ -65,10 +57,8 @@ export class SmartcarClient {
     return `${CONNECT_BASE}/oauth/authorize?${params.toString()}`;
   }
 
-  // ─── App token (client_credentials) ────────────────────────────────────
-
   private async fetchAppToken(): Promise<string> {
-    this.log.info('[Smartcar] Fetching app token...');
+    this.log.info('[Smartcar] App-Token wird geholt...');
     const resp = await this.http.post(
       SMARTCAR_IAM_URL,
       new URLSearchParams({
@@ -81,7 +71,7 @@ export class SmartcarClient {
     const expiresIn: number = resp.data.expires_in ?? 3600;
     this.session.appToken          = resp.data.access_token;
     this.session.appTokenExpiresAt = Date.now() + expiresIn * 1000;
-    this.log.info('[Smartcar] App token valid for %ds', expiresIn);
+    this.log.info('[Smartcar] App-Token gültig für %ds', expiresIn);
     return resp.data.access_token as string;
   }
 
@@ -95,18 +85,20 @@ export class SmartcarClient {
   }
 
   async ensureAuthenticated(): Promise<void> {
-    if (!this.userId) throw new Error('No userId — connect vehicle first.');
+    if (!this.userId) throw new Error('Keine userId — bitte Fahrzeug verbinden.');
     await this.getAppToken();
   }
 
-  // ─── HTTP helpers ───────────────────────────────────────────────────────
-
   private async authHeaders(): Promise<Record<string, string>> {
-    return { 'Authorization': `Bearer ${await this.getAppToken()}`, 'sc-user-id': this.userId! };
+    return {
+      'Authorization': `Bearer ${await this.getAppToken()}`,
+      'sc-user-id':    this.userId!,
+    };
   }
 
   private async get<T>(path: string): Promise<T> {
-    return (await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, { headers: await this.authHeaders() })).data;
+    return (await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`,
+      { headers: await this.authHeaders() })).data;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -114,8 +106,6 @@ export class SmartcarClient {
       headers: { ...await this.authHeaders(), 'Content-Type': 'application/json' },
     })).data;
   }
-
-  // ─── Discovery ───────────────────────────────────────────────────────────
 
   async getVehicles(): Promise<JlrVehicleSummary[]> {
     const connData = await this.get<{ connections: { vehicleId: string }[] }>('/connections');
@@ -133,8 +123,6 @@ export class SmartcarClient {
     }));
   }
 
-  // ─── Vehicle state ───────────────────────────────────────────────────────
-
   async getVehicleState(vehicleId: string, vin: string): Promise<JlrVehicleState> {
     const [chargeRes, locationRes, odometerRes] = await Promise.allSettled([
       this.get<{ state: string; battery?: { percentRemaining: number; range: { value: number; unit: string } }; fuel?: { percentRemaining: number; range: { value: number; unit: string } } }>(`/vehicles/${vehicleId}/charge`),
@@ -142,8 +130,7 @@ export class SmartcarClient {
       this.get<{ distance: { value: number; unit: string } }>(`/vehicles/${vehicleId}/odometer`),
     ]);
 
-    let batteryLevel: number | undefined, charging: boolean | undefined,
-        fuelLevelPercent: number | undefined, rangeKm: number | undefined;
+    let batteryLevel: number | undefined, charging: boolean | undefined, fuelLevelPercent: number | undefined, rangeKm: number | undefined;
     if (chargeRes.status === 'fulfilled') {
       const c = chargeRes.value;
       charging = c.state === 'CHARGING';
@@ -159,12 +146,11 @@ export class SmartcarClient {
 
     let isLocked = false;
     try { isLocked = (await this.get<{ isLocked: boolean }>(`/vehicles/${vehicleId}/security`)).isLocked; }
-    catch { this.log.debug('[Smartcar] security n/a for %s', vehicleId); }
+    catch { this.log.debug('[Smartcar] security n/a für %s', vehicleId); }
 
     return { vin, isLocked, batteryLevel, charging, lowBattery: batteryLevel !== undefined ? batteryLevel < 20 : undefined, fuelLevelPercent, rangeKm, odometerKm, latitude, longitude, isMoving, lastUpdated: new Date().toISOString() };
   }
 
-  // ─── Commands ────────────────────────────────────────────────────────────
   async lock(id: string):   Promise<void> { await this.post(`/vehicles/${id}/security`, { action: 'LOCK' }); }
   async unlock(id: string): Promise<void> { await this.post(`/vehicles/${id}/security`, { action: 'UNLOCK' }); }
 }
