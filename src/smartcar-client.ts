@@ -35,7 +35,9 @@ export class SmartcarClient {
 
   /**
    * Builds the Smartcar Connect URL.
-   * After login Smartcar redirects to redirectUri with ?user_id=<uuid>
+   * response_type=code is REQUIRED by Smartcar.
+   * After login, Smartcar redirects to redirectUri with ?code=...&user_id=...
+   * The user_id can be read directly from the redirect URL.
    */
   buildConnectUrl(redirectUri: string, mode: 'live' | 'simulated' = 'live'): string {
     const scopes = [
@@ -49,9 +51,10 @@ export class SmartcarClient {
     ].join(' ');
 
     const params = new URLSearchParams({
-      client_id:    this.clientId,
-      redirect_uri: redirectUri,
-      scope:        scopes,
+      response_type: 'code',
+      client_id:     this.clientId,
+      redirect_uri:  redirectUri,
+      scope:         scopes,
       mode,
     });
     return `${CONNECT_BASE}/oauth/authorize?${params.toString()}`;

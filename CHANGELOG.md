@@ -1,37 +1,28 @@
 # Changelog
 
+## [2.2.1] — 2026-06-09
+
+### Fixed
+- `response_type=code` zur Connect-URL hinzugefügt. Smartcar verlangt diesen
+  Parameter zwingend und liefert sonst den Fehler:
+  `400: Missing required parameter: "response_type"`
+- Nach dem Login leitet Smartcar zu:
+  `http://localhost:52625/exchange?code=...&user_id=XXXX-...`
+  Der `user_id`-Wert ist in der Adressleiste sichtbar und wird manuell
+  in das Konfigurationsfeld "Smartcar User ID" eingetragen.
+
 ## [2.2.0] — 2026-06-09
-
-### Changed
-- Lokaler Callback-Server komplett entfernt. Der Server lief auf dem Homebridge-Host,
-  aber `localhost` im Browser zeigt auf den Rechner des Nutzers — der Redirect kam
-  deshalb nie beim Plugin an.
-- Neuer Flow: Connect-URL wird im Log ausgegeben. Nach dem JLR-Login zeigt der Browser
-  die `user_id` in der Adressleiste. Diese wird einmalig in den Plugin-Einstellungen
-  unter "Smartcar User ID" eingetragen.
-- Neues Pflichtfeld `userId` im Config-Schema ergänzt.
-- `homebridge-ui/` Verzeichnis und alle Custom-UI Abhängigkeiten entfernt.
-
-### How to connect
-1. Plugin starten → Connect-URL erscheint im Homebridge-Log
-2. URL im Browser öffnen → JLR InControl Login
-3. Nach dem Login: Adressleiste zeigt `...?user_id=XXXX-...`
-4. Wert von `user_id=` kopieren
-5. In Plugin-Einstellungen unter "Smartcar User ID" eintragen
-6. Speichern & Homebridge neu starten
+- Lokaler Callback-Server entfernt, userId wird manuell in Config eingetragen.
 
 ## [2.1.4] — 2026-06-09
-- Leere server.js um MODULE_NOT_FOUND Fehler zu beheben.
+- Leere server.js um MODULE_NOT_FOUND zu beheben.
 
 ## [2.1.3] — 2026-06-09
-- Custom UI entfernt (config.schema bereinigt).
-
-## [2.1.2] — 2026-06-09
-- customUi: true zu config.schema hinzugefügt.
+- Custom UI entfernt.
 
 ## [2.1.1] — 2026-06-08
-- response_type=code aus Connect-URL entfernt.
-- Server lauscht auf localhost statt 127.0.0.1.
+- response_type=code aus Connect-URL entfernt (Rücknahme in 2.2.1).
+- Server auf localhost umgestellt.
 
 ## [2.0.0] — 2026-06-08
 - Redesign auf Smartcar V3 flow.
