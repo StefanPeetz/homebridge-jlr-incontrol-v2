@@ -1,29 +1,26 @@
 # Changelog
 
-## [2.1.3] — 2026-06-09
+## [2.1.4] — 2026-06-09
 
 ### Fixed
-- Custom UI vollständig entfernt. Der `server.js` lief in einem eigenen Node-Prozess
-  getrennt von Homebridge und hatte keinen Zugriff auf die Plattform-Instanz, was
-  dazu führte dass die Plugin-Settings dauerhaft luden ohne je zu reagieren.
-- `customUi: true` und `customUiPath` aus Schema/package.json entfernt.
-- Standard-Konfigurationsformular ist wieder vollständig funktionsfähig.
+- `homebridge-ui/server.js` war noch im Paket enthalten und versuchte
+  `@homebridge/plugin-ui-utils` zu laden, das nicht mehr als Dependency
+  gelistet war. Dies verursachte `MODULE_NOT_FOUND` beim Plugin-Start.
+- `server.js` und `public/index.html` auf leere Platzhalter reduziert
+  damit Homebridge keine Fehler wirft.
 
-### How to connect
-Der Connect-Flow läuft weiterhin automatisch beim Homebridge-Start:
-1. Plugin starten → Connect-URL erscheint im Log
-2. URL im Browser öffnen → JLR-Login → Weiterleitung zu localhost:52625
-3. user_id wird gespeichert, Fahrzeug erscheint in HomeKit
+## [2.1.3] — 2026-06-09
+- Custom UI entfernt (config.schema.json, package.json bereinigt).
 
 ## [2.1.2] — 2026-06-09
-- `customUi: true` zu config.schema.json hinzugefügt (rückgängig gemacht in 2.1.3).
+- `customUi: true` zu config.schema.json hinzugefügt (rückgängig gemacht).
 
 ## [2.1.1] — 2026-06-08
 - `response_type=code` aus Connect-URL entfernt.
 - Server lauscht auf `localhost` statt `127.0.0.1`.
 
 ## [2.1.0] — 2026-06-08
-- Custom UI hinzugefügt (rückgängig gemacht in 2.1.3).
+- Custom UI hinzugefügt (rückgängig gemacht in 2.1.3/2.1.4).
 
 ## [2.0.0] — 2026-06-08
 - Redesign auf Smartcar V3 flow.
