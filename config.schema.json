@@ -1,5 +1,5 @@
 {
-  "pluginAlias": "JlrSmartcarPlatform",
+  "pluginAlias": "JlrSmartcar",
   "pluginType": "platform",
   "singular": true,
   "schema": {
@@ -8,37 +8,46 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "JLR Smartcar",
-        "required": true
+        "required": true,
+        "default": "JLR Smartcar"
       },
       "applicationId": {
         "title": "Smartcar Application ID",
         "type": "string",
         "required": true,
-        "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        "description": "Die Application ID aus dem Smartcar Dashboard (UUID-Format). Zu finden unter dashboard.smartcar.com → Configuration → Application details → Application ID. Wird für den Connect-Flow (Fahrzeug verbinden) benötigt."
+        "description": "Die Application ID aus dem Smartcar Dashboard (UUID-Format). Zu finden unter dashboard.smartcar.com \u2192 Configuration \u2192 Application details \u2192 Application ID. Wird f\u00fcr den Connect-Flow (Fahrzeug verbinden) ben\u00f6tigt."
       },
       "clientId": {
         "title": "Smartcar API Client ID",
         "type": "string",
         "required": true,
-        "placeholder": "client_01…",
-        "description": "Die API Client ID aus dem Smartcar Dashboard. Zu finden unter dashboard.smartcar.com → Configuration → API credentials → Client ID. Wird für den API-Zugriff (client_credentials) benötigt."
+        "description": "Die API Client ID aus dem Smartcar Dashboard. Zu finden unter dashboard.smartcar.com \u2192 Configuration \u2192 API credentials \u2192 Client ID. Wird f\u00fcr den API-Zugriff (client_credentials) ben\u00f6tigt."
       },
       "clientSecret": {
         "title": "Smartcar Client Secret",
         "type": "string",
         "required": true,
-        "placeholder": "sec_01…",
-        "description": "Das Client Secret aus dem Smartcar Dashboard → API credentials."
+        "description": "Das Client Secret aus dem Smartcar Dashboard \u2192 API credentials."
       },
       "userId": {
         "title": "Smartcar User ID",
         "type": "string",
-        "description": "Einmalig nach dem Connect-Flow eintragen. Anleitung: Homebridge-Log lesen → Connect-URL im Browser öffnen → JLR-Login → Adressleiste zeigt ?code=...&user_id=XXXX → user_id kopieren und hier einfügen.",
-        "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        "description": "Einmalig nach dem Connect-Flow eintragen. Anleitung: Homebridge-Log lesen \u2192 Connect-URL im Browser \u00f6ffnen \u2192 JLR-Login \u2192 Adressleiste zeigt ?code=...&user_id=XXXX \u2192 user_id kopieren und hier einf\u00fcgen."
       },
-      "pollIntervalSeconds": {
+      "smartcarPlan": {
+        "title": "Smartcar Plan",
+        "type": "string",
+        "default": "auto",
+        "oneOf": [
+          { "title": "Automatisch erkennen (empfohlen)", "enum": ["auto"] },
+          { "title": "Free — nur Fahrzeuginfo (Make/Model/Year)", "enum": ["free"] },
+          { "title": "Basic — + VIN, Kilometerstand", "enum": ["basic"] },
+          { "title": "Standard — + Location, Fuel/Charge, Range", "enum": ["standard"] },
+          { "title": "Full — + Lock/Unlock Commands", "enum": ["full"] }
+        ],
+        "description": "Smartcar-Plan bestimmt welche Fahrzeugdaten abrufbar sind. 'auto' erkennt den Plan automatisch anhand der erteilten Berechtigungen (empfohlen)."
+      },
+      "pollingInterval": {
         "title": "Abfrageintervall (Sekunden)",
         "type": "integer",
         "default": 60,

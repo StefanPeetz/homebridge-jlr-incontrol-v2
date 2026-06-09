@@ -1,22 +1,22 @@
 import {
-  API, DynamicPlatformPlugin, Logger, PlatformAccessory,
-  PlatformConfig, Service, Characteristic,
+  API,
+  Characteristic,
+  DynamicPlatformPlugin,
+  Logger,
+  PlatformAccessory,
+  PlatformConfig,
+  Service,
 } from 'homebridge';
-import { SmartcarClient } from './smartcar-client';
-import { SmartcarConfig, JlrVehicleSummary } from './types';
-import { JlrAccessory } from './accessory';
-import { logConnectInstructions, REDIRECT_URI } from './connect-server';
-
-const PLUGIN_NAME   = 'homebridge-jlr-smartcar';
-const PLATFORM_NAME = 'JlrSmartcarPlatform';
+import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { SmartcarClient, SmartcarPlan } from './smartcar-client';
+import { VehicleAccessory } from './vehicle-accessory';
+import { JlrVehicleSummary } from './types';
 
 export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
-  public readonly accessories: PlatformAccessory[] = [];
-
-  private readonly cfg: SmartcarConfig;
-  readonly client: SmartcarClient;
+  private readonly accessories: PlatformAccessory[] = [];
+  public readonly client: SmartcarClient;
 
   constructor(
     public readonly log: Logger,
@@ -25,78 +25,65 @@ export class JlrSmartcarPlatform implements DynamicPlatformPlugin {
   ) {
     this.Service        = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
-    this.cfg            = config as unknown as SmartcarConfig;
-
-    if (!this.cfg.applicationId || !this.cfg.clientId || !this.cfg.clientSecret) {
-      this.log.error(
-        '[JLR InControl] ❌ applicationId, clientId und clientSecret sind Pflichtfelder.',
-      );
-    }
 
     this.client = new SmartcarClient({
-      applicationId: this.cfg.applicationId,
-      clientId:      this.cfg.clientId,
-      clientSecret:  this.cfg.clientSecret,
-      userId:        this.cfg.userId?.trim() || undefined,
-      log:           this.log,
+      applicationId: config.applicationId as string,
+      clientId:      config.clientId      as string,
+      clientSecret:  config.clientSecret  as string,
+      userId:        config.userId        as string | undefined,
+      smartcarPlan:  (config.smartcarPlan as SmartcarPlan | undefined) ?? 'auto',
+      log,
     });
 
-    this.log.info('[JLR InControl] Plattform initialisiert. userId: %s',
-      this.cfg.userId ? this.cfg.userId.substring(0, 8) + '...' : 'nicht gesetzt');
+    log.info('Initializing JlrSmartcarPlatform platform...');
+    log.info('[JLR InControl] Plattform initialisiert. userId: %s...', (config.userId as string ?? '').substring(0, 10));
 
-    this.api.on('didFinishLaunching', () => this.onFinishLaunching());
+    this.api.on('didFinishLaunching', () => this.discoverDevices());
   }
 
   configureAccessory(accessory: PlatformAccessory): void {
+    this.log.debug('Loading accessory from cache: %s', accessory.displayName);
     this.accessories.push(accessory);
   }
 
-  private async onFinishLaunching(): Promise<void> {
+  private async discoverDevices(): Promise<void> {
     if (!this.client.hasUserId()) {
-      const connectUrl = this.client.buildConnectUrl(REDIRECT_URI, 'live');
-      logConnectInstructions(this.log, connectUrl);
+      this.log.warn('[JLR InControl] Keine userId konfiguriert. Bitte Fahrzeug verbinden.');
       return;
     }
-    await this.discoverDevices();
-  }
-
-  async discoverDevices(): Promise<void> {
     try {
-      await this.client.ensureAuthenticated();
       const vehicles = await this.client.getVehicles();
       this.log.info('[JLR InControl] %d Fahrzeug(e) gefunden', vehicles.length);
-
-      const activeUuids = new Set(vehicles.map(v => this.api.hap.uuid.generate(v.id)));
-      this.accessories
-        .filter(a => !activeUuids.has(a.UUID))
-        .forEach(a => {
-          this.log.info('[JLR InControl] Entferne veraltetes Zubehör: %s', a.displayName);
-          this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [a]);
-        });
-
-      for (const vehicle of vehicles) {
-        this.registerOrUpdateVehicle(vehicle);
-      }
+      this.registerVehicles(vehicles);
     } catch (err) {
       this.log.error('[JLR InControl] Discovery fehlgeschlagen: %s', (err as Error).message);
     }
   }
 
-  private registerOrUpdateVehicle(vehicle: JlrVehicleSummary): void {
-    const uuid     = this.api.hap.uuid.generate(vehicle.id);
-    const existing = this.accessories.find(a => a.UUID === uuid);
-    const pollMs   = Math.max(30, this.cfg.pollIntervalSeconds ?? 60) * 1000;
+  private registerVehicles(vehicles: JlrVehicleSummary[]): void {
+    const intervalMs = Math.max(30, (this.config.pollingInterval as number ?? 60)) * 1000;
 
-    if (existing) {
-      this.log.info('[JLR InControl] Fahrzeug bekannt: %s', vehicle.nickname);
-      existing.context.vehicle = vehicle;
-      new JlrAccessory(this, existing, this.client, pollMs);
-    } else {
-      this.log.info('[JLR InControl] Neues Fahrzeug: %s', vehicle.nickname);
-      const accessory = new this.api.platformAccessory(vehicle.nickname, uuid);
-      accessory.context.vehicle = vehicle;
-      new JlrAccessory(this, accessory, this.client, pollMs);
-      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    for (const vehicle of vehicles) {
+      const uuid      = this.api.hap.uuid.generate(vehicle.id);
+      const cached    = this.accessories.find(a => a.UUID === uuid);
+      const accessory = cached ?? new this.api.platformAccessory(vehicle.nickname, uuid);
+
+      if (!cached) {
+        this.log.info('[JLR InControl] Neues Fahrzeug: %s', vehicle.nickname);
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      } else {
+        this.log.info('[JLR InControl] Fahrzeug aus Cache: %s', vehicle.nickname);
+      }
+
+      new VehicleAccessory(this, accessory, this.client, vehicle).startPolling(intervalMs);
+    }
+
+    // Remove stale accessories
+    const activeUuids = vehicles.map(v => this.api.hap.uuid.generate(v.id));
+    const stale = this.accessories.filter(a => !activeUuids.includes(a.UUID));
+    if (stale.length) {
+      this.log.info('[JLR InControl] %d veraltete Accessory/ies entfernt', stale.length);
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale);
     }
   }
 }

@@ -7,6 +7,42 @@ const SMARTCAR_API_BASE = 'https://vehicle.api.smartcar.com/v3';
 const CONNECT_BASE      = 'https://connect.smartcar.com';
 const TOKEN_TTL_BUFFER  = 5 * 60 * 1000;
 
+// Smartcar plan capability tiers
+// 'free'    → only read_vehicle_info (make/model/year)
+// 'basic'   → + read_vin, read_odometer
+// 'standard'→ + read_location, read_charge, read_fuel
+// 'full'    → + control_security (lock/unlock commands)
+export type SmartcarPlan = 'auto' | 'free' | 'basic' | 'standard' | 'full';
+
+// Permissions each plan level requires (cumulative)
+const PLAN_PERMISSIONS: Record<Exclude<SmartcarPlan, 'auto'>, string[]> = {
+  free:     ['read_vehicle_info'],
+  basic:    ['read_vehicle_info', 'read_vin', 'read_odometer'],
+  standard: ['read_vehicle_info', 'read_vin', 'read_odometer', 'read_location', 'read_charge', 'read_fuel'],
+  full:     ['read_vehicle_info', 'read_vin', 'read_odometer', 'read_location', 'read_charge', 'read_fuel', 'control_security'],
+};
+
+// Signals available per plan level
+const PLAN_SIGNALS: Record<Exclude<SmartcarPlan, 'auto'>, string[]> = {
+  free:     [],
+  basic:    ['VehicleIdentification.Vin', 'Odometer.Distance'],
+  standard: ['VehicleIdentification.Vin', 'Odometer.Distance', 'Location.Latitude', 'Location.Longitude',
+             'Motion.Speed', 'Charge.IsCharging', 'TractionBattery.StateOfCharge.Displayed',
+             'TractionBattery.Range', 'InternalCombustionEngine.FuelLevel', 'InternalCombustionEngine.FuelRange'],
+  full:     ['VehicleIdentification.Vin', 'Odometer.Distance', 'Location.Latitude', 'Location.Longitude',
+             'Motion.Speed', 'Charge.IsCharging', 'TractionBattery.StateOfCharge.Displayed',
+             'TractionBattery.Range', 'InternalCombustionEngine.FuelLevel', 'InternalCombustionEngine.FuelRange',
+             'Closure.IsLocked'],
+};
+
+function detectPlanFromPermissions(perms: string[]): Exclude<SmartcarPlan, 'auto'> {
+  const has = (p: string) => perms.includes(p);
+  if (has('control_security')) return 'full';
+  if (has('read_location') || has('read_charge') || has('read_fuel')) return 'standard';
+  if (has('read_vin') || has('read_odometer')) return 'basic';
+  return 'free';
+}
+
 interface V3Connection {
   id: string;
   attributes: {
@@ -19,14 +55,7 @@ interface V3ConnectionsResponse {
   data: V3Connection[];
   meta: { totalCount: number };
 }
-
-// V3 Signals response: data is an object keyed by signal name
-interface SignalValue {
-  value: unknown;
-  unit?: string;
-  timestamp?: string;
-  status?: string;
-}
+interface SignalValue { value: unknown; unit?: string; timestamp?: string; }
 type SignalsResponse = { data: Record<string, SignalValue> };
 
 export class SmartcarClient {
@@ -38,18 +67,24 @@ export class SmartcarClient {
   private readonly clientSecret: string;
   private readonly log: Logger;
   private userId?: string;
+  private readonly planOverride: SmartcarPlan;
+
+  // Per-vehicle detected plan cache
+  private vehiclePlans = new Map<string, Exclude<SmartcarPlan, 'auto'>>();
 
   constructor(params: {
     applicationId: string;
     clientId: string;
     clientSecret: string;
     userId?: string;
+    smartcarPlan?: SmartcarPlan;
     log: Logger;
   }) {
     this.applicationId = params.applicationId;
     this.clientId      = params.clientId;
     this.clientSecret  = params.clientSecret;
     this.userId        = params.userId;
+    this.planOverride  = params.smartcarPlan ?? 'auto';
     this.log           = params.log;
     this.http          = axios.create({ timeout: 30_000 });
   }
@@ -76,22 +111,20 @@ export class SmartcarClient {
   private async fetchAppToken(): Promise<string> {
     this.log.info('[Smartcar] App-Token wird geholt (clientId: %s...)', this.clientId.substring(0, 12));
     const basicAuth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
-    try {
-      const resp = await this.http.post(
-        SMARTCAR_IAM_URL,
-        new URLSearchParams({ grant_type: 'client_credentials' }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${basicAuth}` } },
-      );
-      const expiresIn: number = resp.data.expires_in ?? 3600;
-      this.session.appToken          = resp.data.access_token;
-      this.session.appTokenExpiresAt = Date.now() + expiresIn * 1000;
-      this.log.info('[Smartcar] App-Token gültig für %ds', expiresIn);
-      return resp.data.access_token as string;
-    } catch (err: unknown) {
+    const resp = await this.http.post(
+      SMARTCAR_IAM_URL,
+      new URLSearchParams({ grant_type: 'client_credentials' }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${basicAuth}` } },
+    ).catch(err => {
       if (axios.isAxiosError(err))
         this.log.error('[Smartcar] Token-Fehler %s: %s', err.response?.status, JSON.stringify(err.response?.data ?? err.message));
       throw err;
-    }
+    });
+    const expiresIn: number = resp.data.expires_in ?? 3600;
+    this.session.appToken          = resp.data.access_token;
+    this.session.appTokenExpiresAt = Date.now() + expiresIn * 1000;
+    this.log.info('[Smartcar] App-Token gültig für %ds', expiresIn);
+    return resp.data.access_token as string;
   }
 
   async getAppToken(): Promise<string> {
@@ -110,38 +143,36 @@ export class SmartcarClient {
   }
 
   private async get<T>(path: string): Promise<T> {
-    try {
-      return (await this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, { headers: await this.authHeaders() })).data;
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err))
-        this.log.error('[Smartcar] GET %s → %s: %s', path, err.response?.status, JSON.stringify(err.response?.data ?? err.message));
-      throw err;
-    }
+    return this.http.get<T>(`${SMARTCAR_API_BASE}${path}`, { headers: await this.authHeaders() })
+      .then(r => r.data)
+      .catch(err => {
+        if (axios.isAxiosError(err))
+          this.log.error('[Smartcar] GET %s → %s: %s', path, err.response?.status, JSON.stringify(err.response?.data ?? err.message));
+        throw err;
+      });
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
-    try {
-      return (await this.http.post<T>(`${SMARTCAR_API_BASE}${path}`, body, {
-        headers: { ...await this.authHeaders(), 'Content-Type': 'application/json' },
-      })).data;
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err))
-        this.log.error('[Smartcar] POST %s → %s: %s', path, err.response?.status, JSON.stringify(err.response?.data ?? err.message));
-      throw err;
-    }
+    return this.http.post<T>(`${SMARTCAR_API_BASE}${path}`, body, {
+      headers: { ...await this.authHeaders(), 'Content-Type': 'application/json' },
+    }).then(r => r.data)
+      .catch(err => {
+        if (axios.isAxiosError(err))
+          this.log.error('[Smartcar] POST %s → %s: %s', path, err.response?.status, JSON.stringify(err.response?.data ?? err.message));
+        throw err;
+      });
   }
 
-  // Request multiple signals in one call via POST /vehicles/:id/signals
   private async getSignals(vehicleId: string, signals: string[]): Promise<Record<string, SignalValue>> {
-    try {
-      const resp = await this.post<SignalsResponse>(`/vehicles/${vehicleId}/signals`, { signals });
-      this.log.debug('[Smartcar] signals raw: %s', JSON.stringify(resp.data));
-      return resp.data ?? {};
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err))
-        this.log.warn('[Smartcar] signals für %s nicht verfügbar: %s', vehicleId, err.response?.status);
-      return {};
-    }
+    if (signals.length === 0) return {};
+    return this.post<SignalsResponse>(`/vehicles/${vehicleId}/signals`, { signals })
+      .then(r => r.data ?? {})
+      .catch(() => ({}));
+  }
+
+  private getEffectivePlan(vehicleId: string): Exclude<SmartcarPlan, 'auto'> {
+    if (this.planOverride !== 'auto') return this.planOverride;
+    return this.vehiclePlans.get(vehicleId) ?? 'free';
   }
 
   async getVehicles(): Promise<JlrVehicleSummary[]> {
@@ -158,75 +189,67 @@ export class SmartcarClient {
       const vehicleId = conn.relationships.vehicle.data.id;
       const attrs     = conn.attributes.vehicle;
       const perms     = conn.attributes.permissions;
-      this.log.info('[Smartcar] Fahrzeug %s: %d %s %s | Berechtigungen: %s',
-        vehicleId, attrs.year, attrs.make, attrs.model, perms.join(', '));
 
-      // Try to get VIN via signals
+      // Detect or override plan
+      const detectedPlan = detectPlanFromPermissions(perms);
+      const effectivePlan = this.planOverride !== 'auto' ? this.planOverride : detectedPlan;
+      this.vehiclePlans.set(vehicleId, effectivePlan);
+
+      this.log.info(
+        '[Smartcar] Fahrzeug %s: %d %s %s | Berechtigungen: %s | Plan erkannt: %s%s',
+        vehicleId, attrs.year, attrs.make, attrs.model,
+        perms.join(', '),
+        detectedPlan,
+        this.planOverride !== 'auto' ? ` (Override: ${this.planOverride})` : '',
+      );
+
+      if (effectivePlan === 'free') {
+        this.log.warn(
+          '[Smartcar] Fahrzeug %s hat nur \'read_vehicle_info\'. ' +
+          'Fahrzeugdaten (Location, Fuel, Lock) nicht verfügbar. ' +
+          'Smartcar-Plan upgraden oder Fahrzeug neu verbinden.',
+          vehicleId,
+        );
+      }
+
+      // Fetch VIN via signals if plan allows
       let vin = vehicleId;
-      try {
-        const sigVin = await this.getSignals(vehicleId, ['VehicleIdentification.Vin']);
-        if (sigVin['VehicleIdentification.Vin']?.value)
-          vin = sigVin['VehicleIdentification.Vin'].value as string;
-      } catch { /* VIN nicht verfügbar */ }
+      const vinSignals = PLAN_SIGNALS[effectivePlan];
+      if (vinSignals.includes('VehicleIdentification.Vin')) {
+        const s = await this.getSignals(vehicleId, ['VehicleIdentification.Vin']);
+        if (s['VehicleIdentification.Vin']?.value) vin = s['VehicleIdentification.Vin'].value as string;
+      }
 
       return { id: vehicleId, vin, nickname: `${attrs.year} ${attrs.make} ${attrs.model}`, model: attrs.model } as JlrVehicleSummary;
     }));
   }
 
   async getVehicleState(vehicleId: string, vin: string): Promise<JlrVehicleState> {
-    // Request all signals we care about in a single call
-    const signals = await this.getSignals(vehicleId, [
-      'Charge.IsCharging',
-      'TractionBattery.StateOfCharge.Displayed',
-      'TractionBattery.Range',
-      'InternalCombustionEngine.FuelLevel',
-      'InternalCombustionEngine.FuelRange',
-      'Location.Latitude',
-      'Location.Longitude',
-      'Motion.Speed',
-      'Odometer.Distance',
-      'Closure.IsLocked',
-    ]);
+    const plan    = this.getEffectivePlan(vehicleId);
+    const signals = PLAN_SIGNALS[plan];
 
-    this.log.debug('[Smartcar] signals empfangen: %s', Object.keys(signals).join(', ') || 'keine');
+    if (signals.length === 0) {
+      // Free plan: no signals available
+      this.log.debug('[Smartcar] %s: Free-Plan, keine Signal-Daten verfügbar', vehicleId);
+      return { vin, isLocked: false, lastUpdated: new Date().toISOString() };
+    }
 
-    const num = (key: string): number | undefined => {
-      const v = signals[key]?.value;
-      return v !== undefined && v !== null ? Number(v) : undefined;
-    };
-    const bool = (key: string): boolean | undefined => {
-      const v = signals[key]?.value;
-      return v !== undefined && v !== null ? Boolean(v) : undefined;
-    };
+    const data = await this.getSignals(vehicleId, signals);
+    this.log.debug('[Smartcar] signals empfangen für %s: %s', vehicleId, Object.keys(data).join(', ') || 'keine');
 
-    // Battery
-    const batteryRaw = num('TractionBattery.StateOfCharge.Displayed');
-    const batteryLevel = batteryRaw !== undefined ? Math.round(batteryRaw) : undefined;
+    const num  = (k: string) => { const v = data[k]?.value; return v != null ? Number(v)  : undefined; };
+    const bool = (k: string) => { const v = data[k]?.value; return v != null ? Boolean(v) : undefined; };
 
-    // Range (V3 signals return km by default)
-    const rangeRaw = num('TractionBattery.Range') ?? num('InternalCombustionEngine.FuelRange');
-    const rangeKm  = rangeRaw !== undefined ? Math.round(rangeRaw) : undefined;
-
-    // Fuel (ICE)
-    const fuelRaw = num('InternalCombustionEngine.FuelLevel');
-    const fuelLevelPercent = fuelRaw !== undefined ? Math.round(fuelRaw) : undefined;
-
-    // Odometer
-    const odomRaw = num('Odometer.Distance');
-    const odometerKm = odomRaw !== undefined ? Math.round(odomRaw) : undefined;
-
-    // Location
-    const latitude  = num('Location.Latitude');
-    const longitude = num('Location.Longitude');
-    const speed     = num('Motion.Speed');
-    const isMoving  = speed !== undefined ? speed > 2 : undefined;
-
-    // Charging
-    const charging = bool('Charge.IsCharging');
-
-    // Lock status
-    const isLockedRaw = bool('Closure.IsLocked');
-    const isLocked = isLockedRaw ?? false;
+    const batteryLevel     = num('TractionBattery.StateOfCharge.Displayed') !== undefined ? Math.round(num('TractionBattery.StateOfCharge.Displayed')!) : undefined;
+    const rangeKm          = (() => { const r = num('TractionBattery.Range') ?? num('InternalCombustionEngine.FuelRange'); return r !== undefined ? Math.round(r) : undefined; })();
+    const fuelLevelPercent = num('InternalCombustionEngine.FuelLevel') !== undefined ? Math.round(num('InternalCombustionEngine.FuelLevel')!) : undefined;
+    const odometerKm       = num('Odometer.Distance') !== undefined ? Math.round(num('Odometer.Distance')!) : undefined;
+    const latitude         = num('Location.Latitude');
+    const longitude        = num('Location.Longitude');
+    const speed            = num('Motion.Speed');
+    const isMoving         = speed !== undefined ? speed > 2 : undefined;
+    const charging         = bool('Charge.IsCharging');
+    const isLocked         = bool('Closure.IsLocked') ?? false;
 
     return {
       vin, isLocked, batteryLevel, charging,
@@ -237,11 +260,6 @@ export class SmartcarClient {
     };
   }
 
-  // V3 commands via POST /vehicles/:id/commands
-  async lock(id: string): Promise<void> {
-    await this.post(`/vehicles/${id}/commands`, { type: 'LOCK_DOORS' });
-  }
-  async unlock(id: string): Promise<void> {
-    await this.post(`/vehicles/${id}/commands`, { type: 'UNLOCK_DOORS' });
-  }
+  async lock(id: string):   Promise<void> { await this.post(`/vehicles/${id}/commands`, { type: 'LOCK_DOORS' }); }
+  async unlock(id: string): Promise<void> { await this.post(`/vehicles/${id}/commands`, { type: 'UNLOCK_DOORS' }); }
 }

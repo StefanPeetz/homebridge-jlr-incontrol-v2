@@ -1,22 +1,24 @@
 # Changelog
 
-## [2.2.6] — 2026-06-09
+## [2.3.0] — 2026-06-09
+
+### Added
+- **Auto-Plan-Erkennung**: Der effektive Plan wird automatisch aus den erteilten
+  OAuth-Permissions des Fahrzeugs abgeleitet (`auto`, Standard).
+  - `free`     → nur `read_vehicle_info` → keine Signal-Daten
+  - `basic`    → + VIN, Odometer
+  - `standard` → + Location, Charge, Fuel, Range
+  - `full`     → + Lock/Unlock Commands
+- **Config-Option `smartcarPlan`**: Manueller Override falls die Auto-Erkennung
+  nicht passt. Werte: `auto` | `free` | `basic` | `standard` | `full`.
+- Config-Schema aktualisiert mit Dropdown für `smartcarPlan`.
+- Klare Warnung im Log wenn Fahrzeug nur Free-Plan-Permissions hat.
 
 ### Fixed
-- Smartcar V3 verwendet `/signals` statt REST-Einzel-Endpunkte.
-  `/charge`, `/location`, `/odometer`, `/security` existieren in V3 nicht
-  mehr und gaben `INVALID_PATH 404` zurück.
-- Alle Fahrzeugdaten werden jetzt per `POST /vehicles/:id/signals` in
-  einem einzigen Request abgefragt.
-- Lock/Unlock verwendet jetzt `POST /vehicles/:id/commands` mit `LOCK_DOORS`
-  / `UNLOCK_DOORS` statt dem alten `/security` Pfad.
-- Signal-Namen auf V3 Schema angepasst (z.B. `TractionBattery.StateOfCharge
-  .Displayed`, `InternalCombustionEngine.FuelLevel`, `Closure.IsLocked`).
+- Kein unnötiger Signal-Request mehr wenn Plan `free` ist.
 
-### Hinweis
-Die meisten Signals benötigen einen Smartcar-Plan mit erweiterten
-Berechtigungen. Mit dem Free-Plan steht nur `read_vehicle_info` zur
-Veefügung, d.h. Fahrzeugdaten werden als `undefined` zurückgegeben.
+## [2.2.6] — 2026-06-09
+- /signals Endpunkt statt REST-Einzelpfade.
 
 ## [2.2.5] — 2026-06-09
 - /connections Response-Format korrigiert.
