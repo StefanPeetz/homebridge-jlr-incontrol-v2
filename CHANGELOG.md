@@ -1,25 +1,22 @@
 # Changelog
 
-## [2.2.2] — 2026-06-09
+## [2.2.3] — 2026-06-09
 
 ### Fixed
-- `clientId` und `applicationId` getrennt. Smartcar verwendet zwei verschiedene IDs:
-  - **Application ID** (UUID, z.B. `548f3955-...`): wird für die Connect OAuth URL
-    als `client_id`-Parameter benötigt.
-  - **API Client ID** (`client_01…`): wird für den `client_credentials` Token-Abruf
-    verwendet.
-  Bisher wurde dieselbe ID für beides verwendet, was bei einer ID zum Fehler
-  `400: Invalid parameter client_id` führte.
+- `client_credentials` Token-Request verwendet jetzt HTTP Basic Auth
+  (`Authorization: Basic base64(clientId:clientSecret)`) statt Body-Parametern.
+  Smartcar IAM verlangt Basic Auth — Body-only führte zu HTTP 401.
+- Detaillierte Fehler-Logs für Token-Fehler und API-Calls hinzugefügt
+  (Status-Code + Response-Body werden jetzt geloggt).
 
-### Migration
-- Neues Pflichtfeld `applicationId` in den Plugin-Einstellungen einfügen:
-  Smartcar Dashboard → Configuration → Application details → Application ID (UUID)
+## [2.2.2] — 2026-06-09
+- `clientId` und `applicationId` getrennt (UUID vs. client_01…).
 
 ## [2.2.1] — 2026-06-09
-- response_type=code zur Connect-URL hinzugefügt.
+- `response_type=code` zur Connect-URL hinzugefügt.
 
 ## [2.2.0] — 2026-06-09
-- Lokaler Callback-Server entfernt, userId wird manuell in Config eingetragen.
+- Lokaler Callback-Server entfernt, userId manuell in Config.
 
 ## [2.1.4] — 2026-06-09
 - Leere server.js um MODULE_NOT_FOUND zu beheben.
